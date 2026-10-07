@@ -136,10 +136,12 @@ tallies kills/deaths, and declares the winner when the kill target is reached.
 ## 🧪 Tests
 
 ```bash
-node scripts/smoke-test.js
+npm test                  # both suites — 190 assertions, 0 failures
+node scripts/smoke-test.js   # 104 assertions — logic / physics / networking
+node scripts/ui-test.js      #  86 assertions — menu + HUD (jsdom on the real index.html)
 ```
 
-104 assertions covering the contracts that matter:
+`smoke-test.js` covers the contracts that matter:
 
 - **steering** — `A` produces **positive** Y rotation and arcs world −X, `D` produces
   **negative** Y rotation and arcs world +X, `W` moves along the kart's local forward vector
@@ -149,6 +151,15 @@ node scripts/smoke-test.js
 - crate pickup → ability trigger → damage → shield absorption → attributed kill → respawn
 - 60-second simulated bot deathmatch with no NaN and a finite, contained physics state
 - server protocol surface (`room:*`, `net:*`, `/health`)
+
+`ui-test.js` loads `index.html` in jsdom, stubs only the canvas context, and drives the real
+`MenuUI` / `HUD` / `ProfileManager` / `SoundSystem`:
+
+- every element id the UI touches actually exists in the markup
+- boot sequence → menu, garage skin select + live preview, username/profile chip
+- segmented match setup, room modals (create / join / invalid code), lobby, results
+- HUD surfaces: health states, speedo, ability slot + cooldown ring, kill feed, damage
+  numbers/directions, status chips, TAB scoreboard, countdown, banners, death/respawn
 
 ---
 
