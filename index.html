@@ -1,346 +1,494 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Super Racers - 3D Kart Combat</title>
-  <meta name="description" content="Super Racers: A 3D browser-based kart combat game inspired by Smash Karts." />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=Titan+One&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./style.css" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#05010f" />
+<meta name="description" content="Super Racers — 3D multiplayer kart combat deathmatch. Build speed, grab crates, blow up your friends." />
+<title>SUPER RACERS — Neon Deathmatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<style>
+  /* Critical inline paint: keeps the loader pretty before the sheet lands. */
+  html,body{margin:0;height:100%;background:#05010f;color:#e8f4ff;font-family:'Orbitron','Rajdhani',system-ui,sans-serif;overflow:hidden}
+  #boot{position:fixed;inset:0;display:grid;place-items:center;z-index:9999}
+</style>
 </head>
 <body>
-  <!-- Fullscreen Three.js Background Canvas -->
-  <canvas id="bg-canvas"></canvas>
 
-  <!-- ================= MAIN MENU OVERLAY ================= -->
-  <div id="menu-overlay" class="menu-overlay">
-    <!-- TOP BAR -->
-    <header class="top-bar">
-      <!-- Top Left: Player Profile & Customize -->
-      <div class="top-left-panel">
-        <div class="profile-card">
-          <div class="profile-avatar">🏎️</div>
-          <div class="profile-details">
-            <div class="profile-name-row">
-              <span id="profile-username" class="profile-username">Racer_8492</span>
-              <button id="btn-edit-name" class="icon-btn edit-name-btn" title="Edit Username">✏️</button>
-            </div>
-            <div class="profile-progress-row">
-              <span id="profile-level" class="level-badge">LVL 1</span>
-              <div class="xp-bar-track">
-                <div id="xp-bar-fill" class="xp-bar-fill" style="width: 30%;"></div>
-              </div>
-            </div>
-          </div>
+<!-- ══════════════════════════ 3D VIEWPORT ══════════════════════════ -->
+<div id="viewport">
+  <div id="fx-vignette"></div>
+  <div id="fx-scanlines"></div>
+  <div id="fx-boost"></div>
+  <div id="fx-damage"></div>
+  <div id="fx-flash"></div>
+  <div id="fx-fade"></div>
+  <div id="fx-speedlines"></div>
+</div>
+
+<!-- ══════════════════════════ BOOT / LOADER ══════════════════════════ -->
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-logo">
+      <span class="boot-logo-top">SUPER</span>
+      <span class="boot-logo-bottom">RACERS</span>
+    </div>
+    <div class="boot-tag">NEON DEATHMATCH · V2</div>
+    <div class="boot-bar"><i id="boot-bar-fill"></i></div>
+    <div class="boot-status" id="boot-status">BOOTING ENGINE…</div>
+    <button class="btn btn-primary btn-xl" id="boot-start" hidden>ENTER THE ARENA</button>
+    <div class="boot-hint" id="boot-hint">audio + fullscreen unlock required</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ MENU ROOT ══════════════════════════ -->
+<div id="menu-root" class="hidden">
+
+  <!-- ─────────── MAIN MENU ─────────── -->
+  <section id="menu-screen" class="screen">
+    <header class="menu-header">
+      <div class="brand">
+        <div class="brand-title">
+          <span class="brand-super">SUPER</span><span class="brand-racers">RACERS</span>
         </div>
-        <button id="btn-customize" class="btn-customize">
-          <span class="btn-icon">🎨</span>
-          <span>CUSTOMIZE</span>
+        <div class="brand-sub" id="brand-sub">NEON DEATHMATCH</div>
+      </div>
+
+      <div class="header-right">
+        <button class="icon-btn" id="btn-profile" title="Player profile">
+          <span class="icon-emoji">👤</span>
         </button>
-      </div>
-
-      <!-- Top Center: Stylized Game Title -->
-      <div class="top-center-panel">
-        <div class="logo-wrapper">
-          <h1 class="game-logo">SUPER RACERS</h1>
-          <div class="logo-subtitle">⚡ 3D KART COMBAT ⚡</div>
-        </div>
-      </div>
-
-      <!-- Top Right: Currencies -->
-      <div class="top-right-panel">
-        <div class="currency-card">
-          <div class="currency-item">
-            <span class="currency-icon">🪙</span>
-            <span id="currency-coins" class="currency-val">1,450</span>
-          </div>
-          <div class="currency-item gem-item">
-            <span class="currency-icon">💎</span>
-            <span id="currency-gems" class="currency-val">60</span>
-          </div>
-        </div>
+        <button class="icon-btn" id="btn-settings" title="Settings">
+          <span class="icon-emoji">⚙️</span>
+        </button>
       </div>
     </header>
 
-    <!-- CENTER VIEWPORT (Showroom interactive hint) -->
-    <div class="viewport-center-space">
-      <div class="showroom-hint">
-        <span>🔄 Drag to Rotate Kart</span>
+    <!-- floating profile chip -->
+    <div class="profile-chip" id="profile-chip">
+      <div class="pc-top">
+        <div class="pc-avatar" id="pc-avatar">🏎️</div>
+        <div class="pc-id">
+          <input id="username-input" class="pc-name-input" maxlength="14" spellcheck="false" value="Racer" />
+          <div class="pc-meta">
+            <span class="pc-level">LVL <b id="pc-level">1</b></span>
+            <span class="pc-xp-wrap"><i id="pc-xp-fill"></i></span>
+            <span class="pc-xp" id="pc-xp">0/100 XP</span>
+          </div>
+        </div>
+      </div>
+      <div class="pc-stats">
+        <span title="Total kills">☠️ <b id="pc-kills">0</b></span>
+        <span title="Matches won">🏆 <b id="pc-wins">0</b></span>
+        <span title="Races played">🎮 <b id="pc-races">0</b></span>
       </div>
     </div>
 
-    <!-- MAIN CONTROLS ROW -->
-    <section class="main-controls-bar">
-      <!-- Left: Create Private Room -->
-      <div class="control-box control-box-left">
-        <div class="control-box-header">CUSTOM MATCH</div>
-        <button id="btn-create-room" class="btn-secondary-action">
-          <span class="btn-icon">🔑</span>
-          <span>CREATE PRIVATE ROOM</span>
-        </button>
-        <span class="control-caption">Host private room with rules</span>
-      </div>
+    <div class="menu-grid">
+      <!-- ── LEFT: GARAGE ── -->
+      <aside class="panel garage-panel">
+        <div class="panel-head">
+          <h2>SKIN GARAGE</h2>
+          <span class="panel-sub" id="skin-class-label">ALL-ROUNDER</span>
+        </div>
 
-      <!-- Center: Giant PLAY Button -->
-      <div class="control-box control-box-center">
-        <button id="btn-play" class="btn-play-hero">
-          <div class="play-content">
-            <span class="play-text">PLAY</span>
-            <span class="play-sub">INSTANT VS BOTS</span>
+        <div class="skin-list" id="skin-list"><!-- injected --></div>
+
+        <div class="stat-block" id="stat-block">
+          <div class="stat-row" data-stat="speed">
+            <span class="stat-name">TOP SPEED</span>
+            <span class="stat-bar"><i></i></span>
           </div>
-          <div class="play-glow"></div>
-        </button>
-      </div>
-
-      <!-- Right: Join Private Room -->
-      <div class="control-box control-box-right">
-        <div class="control-box-header">JOIN WITH CODE</div>
-        <div class="join-input-group">
-          <input
-            type="text"
-            id="input-room-code"
-            class="input-room-code"
-            placeholder="SR-8921"
-            maxlength="8"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <button id="btn-join-room" class="btn-secondary-action btn-join-action">JOIN</button>
+          <div class="stat-row" data-stat="accel">
+            <span class="stat-name">ACCELERATION</span>
+            <span class="stat-bar"><i></i></span>
+          </div>
+          <div class="stat-row" data-stat="grip">
+            <span class="stat-name">HANDLING</span>
+            <span class="stat-bar"><i></i></span>
+          </div>
+          <div class="stat-row" data-stat="armor">
+            <span class="stat-name">ARMOR</span>
+            <span class="stat-bar"><i></i></span>
+          </div>
         </div>
-        <span class="control-caption">Enter 6-character room code</span>
-      </div>
-    </section>
 
-    <!-- BOTTOM BAR -->
-    <footer class="bottom-bar">
-      <div class="bottom-left">
-        <button id="btn-settings" class="bottom-icon-btn" title="Settings">⚙️</button>
-        <button id="btn-audio-toggle" class="bottom-icon-btn" title="Toggle Sound">
-          <span id="audio-icon">🔊</span>
-        </button>
-      </div>
-
-      <div class="bottom-right">
-        <div class="region-selector-wrap">
-          <span class="region-label">REGION:</span>
-          <select id="select-region" class="select-region" aria-label="Select Server Region">
-            <option value="US-East">US-East (24ms)</option>
-            <option value="US-West">US-West (48ms)</option>
-            <option value="EU-Central">EU-Central (76ms)</option>
-            <option value="ASIA-East">ASIA-East (125ms)</option>
-          </select>
+        <div class="garage-hint">
+          <span>🖱️ Drag the kart to spin it · Scroll to zoom</span>
         </div>
-        <div class="version-tag">Phase 2A • v0.2.0</div>
+      </aside>
+
+      <!-- ── RIGHT: MODES ── -->
+      <section class="mode-column">
+        <button class="mode-btn mode-play" id="btn-play">
+          <span class="mode-icon">🏁</span>
+          <span class="mode-text">
+            <b>PLAY NOW</b>
+            <em>Instant Deathmatch vs Bots</em>
+          </span>
+          <span class="mode-arrow">▶</span>
+        </button>
+
+        <div class="mode-row">
+          <button class="mode-btn" id="btn-create-room">
+            <span class="mode-icon">➕</span>
+            <span class="mode-text">
+              <b>CREATE ROOM</b>
+              <em>Host online match</em>
+            </span>
+          </button>
+          <button class="mode-btn" id="btn-join-room">
+            <span class="mode-icon">🔗</span>
+            <span class="mode-text">
+              <b>JOIN ROOM</b>
+              <em>Enter a code</em>
+            </span>
+          </button>
+        </div>
+
+        <div class="match-config">
+          <div class="cfg-head">MATCH SETUP</div>
+          <div class="cfg-row">
+            <span class="cfg-label">MODE</span>
+            <div class="seg" id="seg-mode">
+              <button data-value="deathmatch" class="active">DEATHMATCH</button>
+              <button data-value="koth">KING OF HILL</button>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <span class="cfg-label">BOTS</span>
+            <div class="seg" id="seg-bots">
+              <button data-value="3">3</button>
+              <button data-value="5" class="active">5</button>
+              <button data-value="7">7</button>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <span class="cfg-label">TARGET</span>
+            <div class="seg" id="seg-score">
+              <button data-value="15" class="active">15 KILLS</button>
+              <button data-value="25">25 KILLS</button>
+              <button data-value="time">5 MIN</button>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <span class="cfg-label">ARENA</span>
+            <div class="seg" id="seg-arena">
+              <button data-value="neon" class="active">NEON</button>
+              <button data-value="reactor">REACTOR</button>
+              <button data-value="skyway">SKY WAY</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="quick-row">
+          <button class="chip-btn" id="btn-controls">⌨️ CONTROLS</button>
+          <button class="chip-btn" id="btn-fullscreen">⛶ FULLSCREEN</button>
+          <button class="chip-btn" id="btn-sound">
+            <span id="sound-icon">🔊</span> SOUND
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <footer class="menu-footer">
+      <div class="footer-left">
+        <span class="net-dot" id="net-dot"></span>
+        <span id="net-label">OFFLINE · bot matches ready</span>
       </div>
+      <div class="footer-mid">W A S D steer · SPACE fire ability · SHIFT drift · TAB scores</div>
+      <div class="footer-right">v2.0 · Three.js</div>
     </footer>
-  </div>
+  </section>
 
-  <!-- ================= IN-GAME HUD OVERLAY ================= -->
-  <div id="game-hud" class="game-hud">
-    <!-- Top HUD info -->
-    <div class="hud-top-bar">
-      <div class="hud-top-left">
-        <div id="hud-room-badge" class="hud-badge">PRACTICE ARENA</div>
-        <div class="hud-rank-pill">
-          <span>RANK: </span>
-          <span id="hud-player-rank" class="hud-rank-number">1ST</span>
+  <!-- ─────────── LOBBY / ROOM ─────────── -->
+  <section id="lobby-screen" class="screen hidden">
+    <div class="lobby-card">
+      <header class="lobby-head">
+        <h2 id="lobby-title">ROOM: <b id="room-code">SR-0000</b></h2>
+        <button class="icon-btn ghost" id="btn-lobby-close">✕</button>
+      </header>
+
+      <div class="lobby-body">
+        <div class="lobby-players">
+          <div class="lobby-sub">RACERS <span id="lobby-count">1/8</span></div>
+          <ul id="lobby-list" class="lobby-list"></ul>
+        </div>
+        <div class="lobby-side">
+          <div class="lobby-sub">ROOM SETUP</div>
+          <div class="cfg-row">
+            <span class="cfg-label">MODE</span>
+            <div class="seg sm" id="lobby-seg-mode">
+              <button data-value="deathmatch" class="active">DM</button>
+              <button data-value="koth">KOTH</button>
+            </div>
+          </div>
+          <div class="cfg-row">
+            <span class="cfg-label">BOTS</span>
+            <div class="seg sm" id="lobby-seg-bots">
+              <button data-value="0">0</button>
+              <button data-value="3" class="active">3</button>
+              <button data-value="5">5</button>
+            </div>
+          </div>
+          <div class="lobby-code-row">
+            <span>Invite code</span>
+            <button class="chip-btn" id="btn-copy-code">📋 COPY</button>
+          </div>
+          <div class="lobby-status" id="lobby-status">Waiting for host to start…</div>
         </div>
       </div>
 
-      <div class="hud-top-center">
-        <div class="hud-timer-card">
-          <span class="hud-timer-icon">⏱️</span>
-          <span id="hud-timer" class="hud-timer-text">00:00</span>
-        </div>
-      </div>
+      <footer class="lobby-footer">
+        <button class="btn btn-ghost" id="btn-lobby-leave">LEAVE</button>
+        <button class="btn btn-primary" id="btn-lobby-start">START MATCH</button>
+      </footer>
+    </div>
+  </section>
 
-      <div class="hud-top-right">
-        <button id="btn-exit-match" class="btn-exit-match">
-          <span>EXIT TO MENU [ESC]</span>
-        </button>
+  <!-- ─────────── RESULTS ─────────── -->
+  <section id="results-screen" class="screen hidden">
+    <div class="results-card">
+      <div class="results-head">
+        <div class="results-title" id="results-title">MATCH COMPLETE</div>
+        <div class="results-sub" id="results-sub">NEON DEATHMATCH</div>
+      </div>
+      <ol class="results-list" id="results-list"></ol>
+      <div class="results-reward" id="results-reward"></div>
+      <div class="results-actions">
+        <button class="btn btn-primary" id="btn-rematch">⟲ REMATCH</button>
+        <button class="btn btn-ghost" id="btn-results-menu">MAIN MENU</button>
       </div>
     </div>
+  </section>
 
-    <!-- Right HUD: Leaderboard Standings -->
-    <div class="hud-standings-panel">
-      <div class="hud-standings-title">STANDINGS</div>
-      <div id="hud-leaderboard-list" class="hud-standings-list">
-        <!-- Rendered dynamically -->
-      </div>
-    </div>
+  <!-- ─────────── MODALS ─────────── -->
+  <div id="modal-layer" class="hidden">
+    <div class="modal-backdrop" data-close-modal></div>
 
-    <!-- Bottom Left: Speedometer Gauge -->
-    <div class="hud-speedometer-panel">
-      <div class="speed-dial">
-        <span id="hud-speed" class="speed-number">0</span>
-        <span class="speed-unit">KM/H</span>
-      </div>
-    </div>
-
-    <!-- Bottom Right: Single active item slot (ability behavior is a later phase) -->
-    <div id="hud-item-slot" class="hud-item-slot is-empty" aria-live="polite" aria-label="Empty item slot">
-      <div id="hud-item-icon" class="hud-item-icon" aria-hidden="true">?</div>
-      <div class="hud-item-copy">
-        <span class="hud-item-kicker">ACTIVE ITEM</span>
-        <strong id="hud-item-name" class="hud-item-name">EMPTY SLOT</strong>
-        <span id="hud-item-hint" class="hud-item-hint">Drive through a mystery crate</span>
-      </div>
-    </div>
-
-    <!-- Bottom Center: Controls Prompt -->
-    <div class="hud-controls-helper">
-      <span>WASD / ARROWS = Drive</span>
-      <span class="divider">•</span>
-      <span>SPACE = Drift</span>
-      <span class="divider">•</span>
-      <span>ESC = Menu</span>
-    </div>
-  </div>
-
-  <!-- ================= COUNTDOWN OVERLAY ================= -->
-  <div id="countdown-overlay" class="countdown-overlay">
-    <div id="countdown-text" class="countdown-text">3</div>
-  </div>
-
-  <!-- ================= TOAST NOTIFICATION ================= -->
-  <div id="toast-notification" class="toast-notification">Connecting to room...</div>
-
-  <!-- ================= MODAL: EDIT NAME ================= -->
-  <div id="modal-edit-name" class="modal-backdrop">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 class="modal-title">EDIT RACER NAME</h2>
-      </div>
+    <div class="modal" id="modal-settings">
+      <header class="modal-head"><h3>SETTINGS</h3><button class="icon-btn ghost" data-close-modal>✕</button></header>
       <div class="modal-body">
-        <label for="input-edit-name" class="modal-label">Enter new username (2–16 chars):</label>
-        <input
-          type="text"
-          id="input-edit-name"
-          class="modal-input"
-          maxlength="16"
-          placeholder="Racer Name"
-          autocomplete="off"
-        />
-      </div>
-      <div class="modal-footer">
-        <button id="btn-cancel-name" class="modal-btn btn-secondary">CANCEL</button>
-        <button id="btn-save-name" class="modal-btn btn-primary">SAVE NAME</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= MODAL: CUSTOMIZE / SKINS ================= -->
-  <div id="modal-customize" class="modal-backdrop">
-    <div class="modal-card modal-large">
-      <div class="modal-header">
-        <div class="modal-title-wrap">
-          <h2 class="modal-title">KART GARAGE</h2>
-          <span class="modal-subtitle">Select your kart paint scheme</span>
+        <div class="set-row">
+          <label>MASTER VOLUME <b id="lbl-volume">80%</b></label>
+          <input type="range" id="set-volume" min="0" max="100" value="80" />
         </div>
-        <button id="btn-close-customize" class="modal-close-btn" title="Close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div id="skins-grid" class="skins-grid">
-          <!-- Rendered dynamically via profile.js -->
+        <div class="set-row">
+          <label>MUSIC / SFX MIX <b id="lbl-music">40%</b></label>
+          <input type="range" id="set-music" min="0" max="100" value="40" />
         </div>
-      </div>
-      <div class="modal-footer">
-        <span class="modal-hint">Tip: Hover over skins to live-preview them on the 3D kart!</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= MODAL: CREATE PRIVATE ROOM ================= -->
-  <div id="modal-create-room" class="modal-backdrop">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 class="modal-title">CREATE PRIVATE ROOM</h2>
-      </div>
-      <div class="modal-body">
-        <!-- Room Code Preview -->
-        <div class="room-code-display-box">
-          <span class="code-label">ROOM CODE:</span>
-          <span id="generated-room-code" class="code-value">SR-8492</span>
-          <button id="btn-copy-code" class="btn-copy-code" title="Copy Code">📋 COPY</button>
-        </div>
-
-        <!-- Game Mode Selection -->
-        <div class="modal-field">
-          <label for="select-game-mode" class="modal-label">GAME MODE:</label>
-          <select id="select-game-mode" class="modal-select">
-            <option value="Free For All">Free For All (Deathmatch)</option>
-            <option value="Team Battle">Team Battle (Red vs Blue)</option>
-            <option value="Coin Rush">Coin Rush</option>
-          </select>
-        </div>
-
-        <!-- Max Players Selection -->
-        <div class="modal-field">
-          <label for="select-max-players" class="modal-label">MAX PLAYERS:</label>
-          <select id="select-max-players" class="modal-select">
-            <option value="4">4 Players</option>
-            <option value="8" selected>8 Players</option>
-            <option value="12">12 Players</option>
-          </select>
-        </div>
-
-        <!-- Enable Bots Toggle -->
-        <div class="modal-field checkbox-field">
-          <label class="toggle-container">
-            <input type="checkbox" id="toggle-bots" checked />
-            <span class="toggle-slider"></span>
-            <span class="toggle-label">Fill Empty Slots with Bots</span>
-          </label>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button id="btn-cancel-create-room" class="modal-btn btn-secondary">CANCEL</button>
-        <button id="btn-start-custom-match" class="modal-btn btn-primary">START MATCH</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ================= MODAL: SETTINGS ================= -->
-  <div id="modal-settings" class="modal-backdrop">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h2 class="modal-title">GAME SETTINGS</h2>
-        <button id="btn-close-settings" class="modal-close-btn" title="Close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="modal-field">
-          <label for="slider-volume" class="modal-label">MASTER VOLUME:</label>
-          <input type="range" id="slider-volume" min="0" max="100" value="80" class="modal-slider" />
-        </div>
-
-        <div class="modal-field checkbox-field">
-          <label class="toggle-container">
-            <input type="checkbox" id="check-sound-toggle" checked />
-            <span class="toggle-slider"></span>
-            <span class="toggle-label">Enable Arcade Sound Effects</span>
-          </label>
-        </div>
-
-        <div class="settings-controls-card">
-          <div class="controls-title">DEFAULT CONTROLS</div>
-          <div class="controls-grid">
-            <div><kbd>W</kbd> or <kbd>↑</kbd></div><div>Accelerate</div>
-            <div><kbd>S</kbd> or <kbd>↓</kbd></div><div>Brake / Reverse</div>
-            <div><kbd>A</kbd> / <kbd>D</kbd> or <kbd>←</kbd> / <kbd>→</kbd></div><div>Steer Left / Right</div>
-            <div><kbd>SPACE</kbd></div><div>Drift & Power Slide</div>
-            <div><kbd>ESC</kbd></div><div>Exit Match to Menu</div>
+        <div class="set-row">
+          <label>GRAPHICS QUALITY</label>
+          <div class="seg" id="seg-quality">
+            <button data-value="low">LOW</button>
+            <button data-value="medium" class="active">MEDIUM</button>
+            <button data-value="high">HIGH</button>
           </div>
         </div>
+        <div class="set-row">
+          <label>CAMERA SHAKE <b id="lbl-shake">100%</b></label>
+          <input type="range" id="set-shake" min="0" max="150" value="100" />
+        </div>
+        <div class="set-row">
+          <label>MOUSE SENSITIVITY <b id="lbl-sens">100%</b></label>
+          <input type="range" id="set-sens" min="20" max="250" value="100" />
+        </div>
+        <div class="set-row inline">
+          <label>INVERT Y (camera pitch)</label><input type="checkbox" id="set-inverty" class="switch" />
+        </div>
+        <div class="set-row inline">
+          <label>SHOW DAMAGE NUMBERS</label><input type="checkbox" id="set-dmgnum" class="switch" checked />
+        </div>
+        <div class="set-row inline">
+          <label>BLOOM / NEON GLOW</label><input type="checkbox" id="set-bloom" class="switch" checked />
+        </div>
+        <div class="set-row">
+          <label>SERVER URL <span class="hint">(blank = same origin)</span></label>
+          <input type="text" id="set-server" class="text-input" placeholder="https://your-server:3001" />
+        </div>
+        <button class="btn btn-ghost danger" id="btn-reset-profile">RESET ALL PROGRESS</button>
       </div>
-      <div class="modal-footer">
-        <button id="btn-close-settings-footer" class="modal-btn btn-primary" onclick="document.getElementById('modal-settings').classList.remove('active');">DONE</button>
+    </div>
+
+    <div class="modal" id="modal-controls">
+      <header class="modal-head"><h3>CONTROLS</h3><button class="icon-btn ghost" data-close-modal>✕</button></header>
+      <div class="modal-body">
+        <div class="key-grid">
+          <div><kbd>W</kbd> / <kbd>↑</kbd><span>Accelerate</span></div>
+          <div><kbd>S</kbd> / <kbd>↓</kbd><span>Brake / Reverse</span></div>
+          <div><kbd>A</kbd> / <kbd>←</kbd><span>Steer Left</span></div>
+          <div><kbd>D</kbd> / <kbd>→</kbd><span>Steer Right</span></div>
+          <div><kbd>SPACE</kbd><span>Fire Ability</span></div>
+          <div><kbd>SHIFT</kbd><span>Drift / Handbrake</span></div>
+          <div><kbd>E</kbd><span>Look Behind</span></div>
+          <div><kbd>TAB</kbd><span>Scoreboard</span></div>
+          <div><kbd>R</kbd><span>Reset Kart (if stuck)</span></div>
+          <div><kbd>ESC</kbd><span>Pause Menu</span></div>
+          <div><kbd>Q</kbd><span>Horn / Taunt</span></div>
+          <div><kbd>🖱️ DRAG</kbd><span>Orbit camera</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-join">
+      <header class="modal-head"><h3>JOIN A ROOM</h3><button class="icon-btn ghost" data-close-modal>✕</button></header>
+      <div class="modal-body">
+        <p class="modal-copy">Enter the invite code your host shared — it looks like <b>SR-4821</b>.</p>
+        <input type="text" id="join-code-input" class="text-input code-input" placeholder="SR-0000"
+               maxlength="7" autocomplete="off" spellcheck="false" />
+        <div class="code-error" id="join-code-error" hidden>That code doesn't look right (SR-1234)</div>
+        <button class="btn btn-primary" id="btn-join-confirm">JOIN BATTLE</button>
+      </div>
+    </div>
+
+    <div class="modal" id="modal-profile">
+      <header class="modal-head"><h3>RACER PROFILE</h3><button class="icon-btn ghost" data-close-modal>✕</button></header>
+      <div class="modal-body">
+        <div class="prof-grid">
+          <div class="prof-stat"><span>LEVEL</span><b id="prof-level">1</b></div>
+          <div class="prof-stat"><span>XP</span><b id="prof-xp">0</b></div>
+          <div class="prof-stat"><span>KILLS</span><b id="prof-kills">0</b></div>
+          <div class="prof-stat"><span>DEATHS</span><b id="prof-deaths">0</b></div>
+          <div class="prof-stat"><span>WINS</span><b id="prof-wins">0</b></div>
+          <div class="prof-stat"><span>MATCHES</span><b id="prof-races">0</b></div>
+        </div>
+        <div class="set-row">
+          <label>DISPLAY NAME</label>
+          <input type="text" id="prof-name" class="text-input" maxlength="14" />
+        </div>
+        <button class="btn btn-primary" id="btn-save-profile">SAVE</button>
       </div>
     </div>
   </div>
 
-  <!-- Main JavaScript App Bundle -->
-  <script type="module" src="./src/main.js"></script>
+  <div id="toast-stack"></div>
+</div>
+
+<!-- ══════════════════════════ IN-GAME HUD ══════════════════════════ -->
+<div id="hud-root" class="hidden">
+
+  <!-- top bar -->
+  <div class="hud-top">
+    <div class="hud-score-box">
+      <span class="hsb-label">SCORE</span>
+      <span class="hsb-value" id="hud-score">0</span>
+    </div>
+    <div class="hud-timer-box">
+      <span class="hud-mode-name" id="hud-mode-name">NEON DEATHMATCH</span>
+      <span class="hud-timer" id="hud-timer">5:00</span>
+      <span class="hud-leader" id="hud-leader">LEADER: —</span>
+    </div>
+    <div class="hud-alive-box">
+      <span class="hsb-label">ALIVE</span>
+      <span class="hsb-value" id="hud-alive">1</span>
+    </div>
+  </div>
+
+  <!-- kill feed -->
+  <ul id="kill-feed"></ul>
+
+  <!-- crosshair + hitmarker -->
+  <div id="crosshair">
+    <span class="ch-dot"></span>
+    <span class="ch-hit" id="hit-marker"></span>
+    <span class="ch-hit kill" id="kill-marker"></span>
+  </div>
+
+  <!-- damage direction arrows -->
+  <div id="dmg-dirs"></div>
+
+  <!-- floating damage numbers -->
+  <div id="dmg-numbers"></div>
+
+  <!-- status effects -->
+  <div id="status-effects"></div>
+
+  <!-- bottom-left: health + speedo -->
+  <div class="hud-bottom-left">
+    <div class="health-wrap">
+      <div class="health-bar">
+        <i id="health-fill"></i>
+        <span class="health-ghost" id="health-ghost"></span>
+        <span class="health-text" id="health-text">100</span>
+      </div>
+      <div class="health-shield" id="shield-bar" hidden><i id="shield-fill"></i></div>
+    </div>
+
+    <div class="speedo">
+      <canvas id="speedo-canvas" width="230" height="230"></canvas>
+      <div class="speedo-readout">
+        <span id="speed-value">0</span>
+        <small>KM/H</small>
+      </div>
+      <div class="speedo-gear" id="speed-gear">N</div>
+    </div>
+  </div>
+
+  <!-- bottom-right: ability + crates -->
+  <div class="hud-bottom-right">
+    <div class="ability-slot" id="ability-slot">
+      <svg class="ability-ring" viewBox="0 0 100 100">
+        <circle class="ring-bg" cx="50" cy="50" r="45"></circle>
+        <circle class="ring-fill" id="ability-ring-fill" cx="50" cy="50" r="45"></circle>
+      </svg>
+      <div class="ability-inner">
+        <span class="ability-icon" id="ability-icon">❔</span>
+        <span class="ability-name" id="ability-name">NO ITEM</span>
+      </div>
+      <div class="ability-key">SPACE</div>
+      <div class="ability-ready" id="ability-ready" hidden>READY!</div>
+    </div>
+    <div class="hint-bar" id="hud-hint">Break crates to grab abilities</div>
+  </div>
+
+  <!-- scoreboard (TAB) -->
+  <div id="scoreboard" class="hidden">
+    <div class="sb-card">
+      <header>
+        <h3 id="sb-title">NEON DEATHMATCH</h3>
+        <span id="sb-sub">FIRST TO 15 KILLS</span>
+      </header>
+      <table>
+        <thead><tr><th>#</th><th>RACER</th><th>K</th><th>D</th><th>STREAK</th><th>PING</th></tr></thead>
+        <tbody id="sb-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- death overlay -->
+  <div id="death-overlay" class="hidden">
+    <div class="death-text">ELIMINATED</div>
+    <div class="death-by" id="death-by">by SOMEONE</div>
+    <div class="death-respawn">Respawn in <b id="respawn-count">3</b></div>
+  </div>
+
+  <!-- countdown -->
+  <div id="countdown" class="hidden">
+    <div class="cd-text" id="cd-text">3</div>
+    <div class="cd-sub" id="cd-sub">GET READY</div>
+  </div>
+
+  <!-- big center banner (kills / streaks / events) -->
+  <div id="banner"></div>
+
+  <!-- boost meter -->
+  <div id="boost-indicator" class="hidden"><i id="boost-fill"></i><span>BOOST</span></div>
+</div>
+
+<!-- ══════════════════════════ PAUSE ══════════════════════════ -->
+<div id="pause-root" class="hidden">
+  <div class="pause-card">
+    <h2>PAUSED</h2>
+    <div class="pause-score" id="pause-score">Kills 0 · Deaths 0</div>
+    <button class="btn btn-primary" id="btn-resume">▶ RESUME</button>
+    <button class="btn btn-ghost" id="btn-pause-settings">⚙️ SETTINGS</button>
+    <button class="btn btn-ghost" id="btn-pause-controls">⌨️ CONTROLS</button>
+    <button class="btn btn-ghost danger" id="btn-quit">⏏ QUIT TO MENU</button>
+  </div>
+</div>
+
+<div id="rotate-hint" class="hidden">↻ Rotate your device for the full cockpit view</div>
+
+<script type="module" src="/src/main.js"></script>
 </body>
 </html>
