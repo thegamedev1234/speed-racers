@@ -88,6 +88,34 @@ export class SoundSystem {
     } catch (e) {}
   }
 
+  playPickup() {
+    if (!this.isEnabled()) return;
+    this.init();
+    if (!this.ctx) return;
+
+    try {
+      const now = this.ctx.currentTime;
+      [659.25, 880, 1174.66].forEach((frequency, index) => {
+        const start = now + index * 0.045;
+        const oscillator = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(frequency, start);
+        oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.16, start + 0.08);
+        gain.gain.setValueAtTime(0.16 * this.getVolume(), start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.16);
+
+        oscillator.connect(gain);
+        gain.connect(this.ctx.destination);
+        oscillator.start(start);
+        oscillator.stop(start + 0.16);
+      });
+    } catch (e) {
+      // Browsers may suspend Web Audio until the next user interaction.
+    }
+  }
+
   playCountdownTick() {
     if (!this.isEnabled()) return;
     this.init();

@@ -1,5 +1,5 @@
-import * as THREE from 'three';
 import { createKart } from '../graphics/kartModel.js';
+import { ArcadeKartPhysics } from './kartPhysics.js';
 import { SKINS } from '../ui/profile.js';
 
 export const GAME_STATES = {
@@ -15,14 +15,21 @@ const BOT_CONFIGS = [
   { name: 'Nitro_Ghost', skin: SKINS[3] || SKINS[0], colorHex: '#f59e0b' }
 ];
 
+// Phase 2A pickup placeholders only; ability behavior is intentionally deferred.
+const PICKUP_ABILITIES = [
+  { id: 'nitro-boost', name: 'Nitro Boost', icon: '⚡', color: '#34f5d0' },
+  { id: 'homing-missile', name: 'Homing Missile', icon: '🎯', color: '#ff5da2' }
+];
+
 export class GameStateManager {
-  constructor({ graphicsManager, profileManager, soundSystem, onStateChange, onCountdownTick, onHUDUpdate }) {
+  constructor({ graphicsManager, profileManager, soundSystem, onStateChange, onCountdownTick, onHUDUpdate, onItemPickup }) {
     this.graphics = graphicsManager;
     this.profile = profileManager;
     this.sound = soundSystem;
     this.onStateChange = onStateChange || (() => {});
     this.onCountdownTick = onCountdownTick || (() => {});
     this.onHUDUpdate = onHUDUpdate || (() => {});
+    this.onItemPickup = onItemPickup || (() => {});
 
     this.state = GAME_STATES.MENU;
 
@@ -30,29 +37,16 @@ export class GameStateManager {
     this.playerKart = createKart(this.profile.getActiveSkin());
     this.graphics.scene.add(this.playerKart.root);
 
+    // Lightweight arcade handling; keep the state object shared for HUD/race stats.
+    this.physics = new ArcadeKartPhysics({ bounds: this.graphics.arenaBounds.drivableLimit });
+    this.playerPhysics = this.physics.state;
+    this.pickupAbility = null;
+    this.pickupSequence = 0;
+    this.bumpSoundCooldown = 0;
+
     // Bots array
     this.bots = [];
 
-    // Player Physics & Control State
-    this.playerPhysics = {
-      x: 0,
-      z: 0,
-      y: 0,
-      rotationY: 0,
-      speed: 0,
-      maxSpeed: 24.0,
-      maxReverseSpeed: -8.0,
-      accel: 22.0,
-      brakeAccel: 32.0,
-      friction: 12.0,
-      steer: 0,
-      steerSpeed: 3.5,
-      isDrifting: false,
-      driftFactor: 1.0,
-      distanceTraveled: 0
-    };
-
-    // Keyboard inputs
     this.keys = {
       up: false,
       down: false,
@@ -77,10 +71,21 @@ export class GameStateManager {
   }
 
   bindKeyboard() {
-    window.addEventListener('keydown', e => {
-      if (e.target && ['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
+    const controlKeys = new Set([
+      'KeyW', 'ArrowUp', 'KeyS', 'ArrowDown',
+      'KeyA', 'ArrowLeft', 'KeyD', 'ArrowRight', 'Space'
+    ]);
 
-      switch (e.code) {
+    window.addEventListener('keydown', event => {
+      const target = event.target;
+      if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
+      if (!controlKeys.has(event.code)) return;
+
+      if (this.state === GAME_STATES.COUNTDOWN || this.state === GAME_STATES.PLAYING) {
+        event.preventDefault();
+      }
+
+      switch (event.code) {
         case 'KeyW':
         case 'ArrowUp':
           this.keys.up = true;
@@ -103,8 +108,8 @@ export class GameStateManager {
       }
     });
 
-    window.addEventListener('keyup', e => {
-      switch (e.code) {
+    window.addEventListener('keyup', event => {
+      switch (event.code) {
         case 'KeyW':
         case 'ArrowUp':
           this.keys.up = false;
@@ -126,6 +131,16 @@ export class GameStateManager {
           break;
       }
     });
+
+    window.addEventListener('blur', () => this.resetKeys());
+  }
+
+  resetKeys() {
+    this.keys.up = false;
+    this.keys.down = false;
+    this.keys.left = false;
+    this.keys.right = false;
+    this.keys.drift = false;
   }
 
   updatePlayerSkin() {
@@ -144,16 +159,14 @@ export class GameStateManager {
 
     this.state = GAME_STATES.COUNTDOWN;
     this.matchTimer = 0;
+    this.pickupAbility = null;
+    this.bumpSoundCooldown = 0;
+    this.resetKeys();
+    this.graphics.arena.resetCrates();
     this.onStateChange(this.state, this.matchOptions);
 
-    // Position player at starting grid
-    this.playerPhysics.x = 0;
-    this.playerPhysics.z = 15;
-    this.playerPhysics.rotationY = 0;
-    this.playerPhysics.speed = 0;
-    this.playerPhysics.steer = 0;
-    this.playerPhysics.distanceTraveled = 0;
-
+    // Position the player at the starting grid, facing toward +Z.
+    this.physics.reset({ x: 0, z: 15, rotationY: 0 });
     this.playerKart.root.position.set(0, 0, 15);
     this.playerKart.root.rotation.set(0, 0, 0);
 
@@ -241,14 +254,15 @@ export class GameStateManager {
     this.sound.stopEngine();
     this.state = GAME_STATES.MENU;
     this.clearBots();
+    this.resetKeys();
+    this.pickupAbility = null;
+    this.graphics.arena.resetCrates();
 
-    // Reset player position to origin showroom
-    this.playerPhysics.speed = 0;
-    this.playerPhysics.steer = 0;
+    // Reset player position to the showroom origin.
+    this.physics.reset({ x: 0, z: 0, rotationY: 0 });
     this.playerKart.root.position.set(0, 0, 0);
     this.playerKart.root.rotation.set(0, 0, 0);
 
-    // Revert camera to showroom orbit
     this.graphics.setCameraShowroom();
     this.onStateChange(this.state);
   }
@@ -293,97 +307,33 @@ export class GameStateManager {
 
   updatePlayerPhysics(dt) {
     const p = this.playerPhysics;
-    const isDrifting = this.keys.drift;
-    p.isDrifting = isDrifting;
+    const throttle = this.keys.up === this.keys.down
+      ? 0
+      : (this.keys.up ? 1 : -1);
+    const steer = (this.keys.right ? 1 : 0) - (this.keys.left ? 1 : 0);
+    const movement = this.physics.step({
+      dt,
+      throttle,
+      steer,
+      drifting: this.keys.drift
+    });
 
-    // Acceleration & Braking
-    if (this.keys.up) {
-      p.speed += p.accel * dt;
-      if (p.speed > p.maxSpeed) p.speed = p.maxSpeed;
-    } else if (this.keys.down) {
-      if (p.speed > 0) {
-        // Braking
-        p.speed -= p.brakeAccel * dt;
-        if (p.speed < 0) p.speed = 0;
-      } else {
-        // Reversing
-        p.speed -= p.accel * 0.6 * dt;
-        if (p.speed < p.maxReverseSpeed) p.speed = p.maxReverseSpeed;
-      }
-    } else {
-      // Natural rolling friction
-      if (p.speed > 0) {
-        p.speed -= p.friction * dt;
-        if (p.speed < 0) p.speed = 0;
-      } else if (p.speed < 0) {
-        p.speed += p.friction * dt;
-        if (p.speed > 0) p.speed = 0;
-      }
+    if (this.bumpSoundCooldown > 0) {
+      this.bumpSoundCooldown = Math.max(0, this.bumpSoundCooldown - dt);
     }
-
-    // Steering
-    const targetSteer = (this.keys.left ? 1 : 0) - (this.keys.right ? 1 : 0);
-    p.steer += (targetSteer - p.steer) * Math.min(1, p.steerSpeed * 4 * dt);
-
-    // Turning effectiveness scales with speed, tighter when drifting
-    if (Math.abs(p.speed) > 0.5) {
-      const turnMultiplier = isDrifting ? 1.6 : 1.1;
-      const reverseFactor = p.speed < 0 ? -1 : 1;
-      p.rotationY += p.steer * turnMultiplier * reverseFactor * dt * 2.2;
-    }
-
-    // Velocity vectors
-    const forwardX = Math.sin(p.rotationY);
-    const forwardZ = Math.cos(p.rotationY);
-
-    const nextX = p.x + forwardX * p.speed * dt;
-    const nextZ = p.z + forwardZ * p.speed * dt;
-
-    // Boundary Collisions (Arena bounds -57 to +57)
-    const boundLimit = 56.5;
-    let collided = false;
-
-    if (Math.abs(nextX) > boundLimit) {
-      collided = true;
-      p.speed = -p.speed * 0.45; // Bounce off wall
-      p.x = Math.sign(nextX) * boundLimit;
-    } else {
-      p.x = nextX;
-    }
-
-    if (Math.abs(nextZ) > boundLimit) {
-      collided = true;
-      p.speed = -p.speed * 0.45; // Bounce off wall
-      p.z = Math.sign(nextZ) * boundLimit;
-    } else {
-      p.z = nextZ;
-    }
-
-    // Obstacle Crates Collisions
-    if (this.graphics.obstacles) {
-      for (const obs of this.graphics.obstacles) {
-        const dx = p.x - obs.x;
-        const dz = p.z - obs.z;
-        const dist = Math.hypot(dx, dz);
-        const minDist = obs.radius + 1.2;
-        if (dist < minDist && dist > 0.001) {
-          collided = true;
-          const overlap = minDist - dist;
-          p.x += (dx / dist) * overlap;
-          p.z += (dz / dist) * overlap;
-          p.speed = -p.speed * 0.35;
-        }
-      }
-    }
-
-    if (collided && Math.abs(p.speed) > 3) {
+    if (movement.collided && movement.impactSpeed > 5 && this.bumpSoundCooldown === 0) {
       this.sound.playBump();
+      this.bumpSoundCooldown = 0.35;
     }
 
-    // Distance metric for standings
-    p.distanceTraveled += Math.abs(p.speed) * dt;
+    const crate = this.graphics.arena.collectAlongPath(
+      movement.startX,
+      movement.startZ,
+      movement.endX,
+      movement.endZ
+    );
+    if (crate) this.grantPickupAbility(crate);
 
-    // Update Three.js Model Transform
     this.playerKart.root.position.set(p.x, 0, p.z);
     this.playerKart.root.rotation.y = p.rotationY;
     this.playerKart.update({
@@ -394,8 +344,16 @@ export class GameStateManager {
     });
   }
 
+  grantPickupAbility(crate) {
+    const ability = PICKUP_ABILITIES[Math.floor(Math.random() * PICKUP_ABILITIES.length)];
+    this.pickupAbility = { ...ability, slotId: ++this.pickupSequence };
+
+    this.sound.playPickup();
+    this.onItemPickup(this.pickupAbility, crate);
+  }
+
   updateBotsAI(dt) {
-    const boundLimit = 54.0;
+    const boundLimit = this.graphics.arenaBounds.drivableLimit - 0.8;
     const avoidDistance = 14.0;
 
     this.bots.forEach(bot => {
@@ -410,15 +368,15 @@ export class GameStateManager {
       // 2. Wall Avoidance Steering
       let wallAvoidanceSteer = 0;
       if (bot.x > boundLimit - avoidDistance) {
-        wallAvoidanceSteer += 1.2; // Steer left (towards center)
+        wallAvoidanceSteer -= 1.2; // Positive yaw steers right; turn left toward center.
       } else if (bot.x < -boundLimit + avoidDistance) {
-        wallAvoidanceSteer -= 1.2; // Steer right
+        wallAvoidanceSteer += 1.2;
       }
 
       if (bot.z > boundLimit - avoidDistance) {
-        wallAvoidanceSteer += (bot.x > 0 ? 1 : -1) * 1.0;
-      } else if (bot.z < -boundLimit + avoidDistance) {
         wallAvoidanceSteer += (bot.x > 0 ? -1 : 1) * 1.0;
+      } else if (bot.z < -boundLimit + avoidDistance) {
+        wallAvoidanceSteer += (bot.x > 0 ? 1 : -1) * 1.0;
       }
 
       // Combine wander steering with wall avoidance
@@ -497,7 +455,8 @@ export class GameStateManager {
       racers,
       playerRank,
       gameMode: this.matchOptions.gameMode,
-      roomCode: this.matchOptions.roomCode
+      roomCode: this.matchOptions.roomCode,
+      activeAbility: this.pickupAbility
     });
   }
 }

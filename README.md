@@ -4,7 +4,7 @@
 
 ---
 
-## 🌟 Features (Phase 1 Setup)
+## 🌟 Features (Phase 2A Gameplay Core)
 
 - **3D Showroom & Viewport:**
   - Fullscreen Three.js background canvas with soft ambient, directional, and rim studio lighting.
@@ -29,11 +29,12 @@
   - **JOIN PRIVATE ROOM Input:** Code validator for room IDs (e.g. `SR-8921`) with status notifications.
   - **Bottom Control Bar:** Master volume / sound synthesizer toggle, server region selector (US-East, US-West, EU-Central, ASIA-East), and settings modal.
 
-- **In-Game Match Arena Prototype:**
-  - Responsive kart physics with acceleration, braking/reverse, steering, and drift mechanics.
-  - 3 AI Bot karts featuring wander steering and arena wall avoidance.
-  - Live HUD with digital speedometer (KM/H), race timer, live standings leaderboard, and Exit to Menu [ESC].
-  - Zero-dependency Web Audio API sound effects for clicks, countdown ticks, GO chime, engine acceleration, and wall impacts.
+- **Phase 2A Neon Arena & Driving:**
+  - Procedural 100 × 100 cyber-neon arena with a flat grid floor, glowing perimeter walls, and a smooth third-person chase camera.
+  - Dependency-free arcade kart handling for WASD / arrow-key acceleration, braking/reverse, steering, and drift.
+  - Eight animated Mystery Crates; driving through one triggers a pickup burst and sound, grants a random placeholder ability, and respawns the crate after five seconds.
+  - HUD speedometer, timer, standings, and a single active-item slot. Ability effects and the remaining ability roster are deliberately deferred.
+  - Three simple AI bot karts remain available for practice matches.
 
 ---
 
@@ -50,10 +51,12 @@
     │   ├── profile.js      # LocalStorage profile manager & skin catalog
     │   └── menuUI.js       # UI controllers, modal dialogs, and HUD bindings
     ├── graphics/
-    │   ├── scene.js        # Three.js scene, camera modes, studio & arena environments
+    │   ├── scene.js        # Three.js scene, camera modes, and showroom
+    │   ├── arena.js        # Cyber-neon arena, spinning crates, and pickup effects
     │   └── kartModel.js    # Stylized 3D kart geometry, materials, and animations
     └── game/
-        ├── gameState.js    # State machine, player physics, bot AI steering
+        ├── gameState.js    # Match state, item slot, and bot AI steering
+        ├── kartPhysics.js  # Dependency-free arcade kart controller
         └── audio.js        # Web Audio API procedural sound synthesizer
 ```
 

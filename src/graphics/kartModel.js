@@ -306,7 +306,7 @@ export function createKart(skinConfig) {
     });
 
     // Front wheel steering angle
-    const targetSteerAngle = -steer * 0.45;
+    const targetSteerAngle = steer * 0.45;
     frontSteerGroups.forEach(sg => {
       sg.rotation.y = targetSteerAngle;
     });
@@ -315,8 +315,9 @@ export function createKart(skinConfig) {
     const targetRoll = -steer * Math.min(Math.abs(speed) / 10, 1) * 0.15;
     const targetPitch = Math.max(-0.08, Math.min(0.08, speed * 0.005));
 
-    chassis.rotation.z += (targetRoll - chassis.rotation.z) * 0.15;
-    chassis.rotation.x += (targetPitch - chassis.rotation.x) * 0.15;
+    const bodyResponse = 1 - Math.exp(-12 * dt);
+    chassis.rotation.z += (targetRoll - chassis.rotation.z) * bodyResponse;
+    chassis.rotation.x += (targetPitch - chassis.rotation.x) * bodyResponse;
 
     // Driver head nod & bobble
     if (driverGroup) {
