@@ -40,6 +40,9 @@ window.addEventListener('DOMContentLoaded', () => {
     },
     onHUDUpdate: (hudData) => {
       ui.updateHUD(hudData);
+    },
+    onItemPickup: (ability) => {
+      if (ui) ui.showToast(`Picked up ${ability.name}!`);
     }
   });
 

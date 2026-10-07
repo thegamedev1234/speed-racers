@@ -784,6 +784,94 @@ html, body {
   letter-spacing: 1px;
 }
 
+/* Single Mystery Crate ability pickup slot */
+.hud-item-slot {
+  --item-color: #06b6d4;
+  position: absolute;
+  right: 2rem;
+  bottom: 2rem;
+  width: 250px;
+  min-height: 78px;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.65rem 0.85rem;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(6, 182, 212, 0.58);
+  border-radius: 1rem;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.42), 0 0 20px rgba(6, 182, 212, 0.16);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+.hud-item-slot.has-item {
+  border-color: var(--item-color);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.42), 0 0 24px color-mix(in srgb, var(--item-color) 28%, transparent);
+}
+
+.hud-item-slot.pickup-pulse {
+  animation: itemPickupPulse 0.45s var(--ease-bounce);
+}
+
+@keyframes itemPickupPulse {
+  0% { transform: scale(0.9); }
+  60% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+.hud-item-icon {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(6, 182, 212, 0.75);
+  border-radius: 0.75rem;
+  background: rgba(6, 182, 212, 0.13);
+  color: #67f6ff;
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  text-shadow: 0 0 14px currentColor;
+}
+
+.hud-item-slot.has-item .hud-item-icon {
+  border-color: var(--item-color);
+  color: var(--item-color);
+}
+
+.hud-item-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.hud-item-kicker {
+  color: var(--color-text-muted);
+  font-size: 0.61rem;
+  font-weight: 900;
+  letter-spacing: 1.3px;
+}
+
+.hud-item-name {
+  overflow: hidden;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.hud-item-hint {
+  overflow: hidden;
+  color: #8ca3b7;
+  font-size: 0.67rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Controls prompt */
 .hud-controls-helper {
   position: absolute;
@@ -1310,5 +1398,109 @@ kbd {
 
   .hud-standings-panel {
     display: none; /* Hide on compact screens to leave view clean */
+  }
+
+  .hud-item-slot {
+    right: 1rem;
+    bottom: 4.5rem;
+    width: 225px;
+  }
+
+  .hud-speedometer-panel {
+    left: 1rem;
+    bottom: 4.5rem;
+  }
+
+  .hud-controls-helper {
+    bottom: 1rem;
+    max-width: calc(100vw - 2rem);
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    font-size: 0.72rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .game-hud {
+    padding: 0.75rem;
+  }
+
+  .hud-top-left {
+    gap: 0.4rem;
+  }
+
+  .hud-badge {
+    padding: 0.35rem 0.55rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.8px;
+  }
+
+  .hud-rank-pill {
+    display: none;
+  }
+
+  .hud-timer-card {
+    gap: 0.25rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .hud-timer-text {
+    font-size: 1.1rem;
+  }
+
+  .btn-exit-match {
+    padding: 0.42rem 0.6rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.4px;
+  }
+
+  .hud-item-slot {
+    right: 0.75rem;
+    bottom: 4.1rem;
+    width: 195px;
+    min-height: 66px;
+    gap: 0.55rem;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .hud-item-icon {
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
+    font-size: 1.4rem;
+  }
+
+  .hud-item-name {
+    font-size: 0.82rem;
+  }
+
+  .hud-item-hint {
+    font-size: 0.6rem;
+  }
+
+  .hud-speedometer-panel {
+    left: 0.75rem;
+    bottom: 4.1rem;
+  }
+
+  .speed-dial {
+    gap: 0.25rem;
+    padding: 0.55rem 0.8rem;
+  }
+
+  .speed-number {
+    font-size: 2rem;
+  }
+
+  .hud-controls-helper {
+    bottom: 0.65rem;
+    left: 0.75rem;
+    width: calc(100% - 1.5rem);
+    max-width: none;
+    transform: none;
+    padding: 0.35rem 0.5rem;
+    gap: 0.3rem;
+    font-size: 0.61rem;
   }
 }

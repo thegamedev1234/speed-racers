@@ -15,6 +15,8 @@ export class MenuUI {
     this.onSkinSelect = onSkinSelect;
 
     this.toastTimeout = null;
+    this.gameViewTimeout = null;
+    this.currentHudAbilityId = undefined;
 
     this.cacheElements();
     this.initUI();
@@ -80,6 +82,10 @@ export class MenuUI {
     this.hudRoomBadge = document.getElementById('hud-room-badge');
     this.hudLeaderboardList = document.getElementById('hud-leaderboard-list');
     this.hudPlayerRank = document.getElementById('hud-player-rank');
+    this.hudItemSlot = document.getElementById('hud-item-slot');
+    this.hudItemIcon = document.getElementById('hud-item-icon');
+    this.hudItemName = document.getElementById('hud-item-name');
+    this.hudItemHint = document.getElementById('hud-item-hint');
     this.btnExitMatch = document.getElementById('btn-exit-match');
   }
 
@@ -416,19 +422,26 @@ export class MenuUI {
   }
 
   setMenuView() {
+    clearTimeout(this.gameViewTimeout);
+    this.gameViewTimeout = null;
     this.menuOverlay.style.display = 'flex';
     this.menuOverlay.classList.remove('fade-out');
     this.gameHud.classList.remove('active');
     this.countdownOverlay.classList.remove('active');
+    this.setItemSlot(null);
     this.renderProfile();
   }
 
   setGameView(matchOptions) {
     this.menuOverlay.classList.add('fade-out');
-    setTimeout(() => {
+    clearTimeout(this.gameViewTimeout);
+    this.gameViewTimeout = setTimeout(() => {
       this.menuOverlay.style.display = 'none';
       this.gameHud.classList.add('active');
+      this.gameViewTimeout = null;
     }, 300);
+
+    this.setItemSlot(null);
 
     // Setup HUD tags
     if (matchOptions.isPrivate && matchOptions.roomCode) {
@@ -453,7 +466,37 @@ export class MenuUI {
     this.countdownText.classList.add('pulse');
   }
 
-  updateHUD({ speedKmh, matchTimer, racers, playerRank, roomCode }) {
+  setItemSlot(ability) {
+    if (!this.hudItemSlot) return;
+
+    const abilityId = ability?.slotId ?? ability?.id ?? null;
+    if (abilityId === this.currentHudAbilityId) return;
+    this.currentHudAbilityId = abilityId;
+    this.hudItemSlot.classList.remove('pickup-pulse');
+    if (!ability) {
+      this.hudItemSlot.classList.remove('has-item');
+      this.hudItemSlot.classList.add('is-empty');
+      this.hudItemSlot.style.setProperty('--item-color', '#06b6d4');
+      this.hudItemSlot.setAttribute('aria-label', 'Empty item slot. Drive through a mystery crate to collect an item.');
+      this.hudItemIcon.textContent = '?';
+      this.hudItemName.textContent = 'EMPTY SLOT';
+      this.hudItemHint.textContent = 'Drive through a mystery crate';
+      return;
+    }
+
+    this.hudItemSlot.classList.remove('is-empty');
+    this.hudItemSlot.classList.add('has-item');
+    this.hudItemSlot.style.setProperty('--item-color', ability.color || '#06b6d4');
+    this.hudItemSlot.setAttribute('aria-label', `${ability.name} stored in the active item slot.`);
+    this.hudItemIcon.textContent = ability.icon || '✦';
+    this.hudItemName.textContent = ability.name;
+    this.hudItemHint.textContent = 'STORED IN ACTIVE SLOT';
+    void this.hudItemSlot.offsetWidth;
+    this.hudItemSlot.classList.add('pickup-pulse');
+  }
+
+  updateHUD({ speedKmh, matchTimer, racers, playerRank, activeAbility }) {
+    this.setItemSlot(activeAbility);
     if (this.hudSpeedometer) {
       this.hudSpeedometer.textContent = speedKmh;
     }
