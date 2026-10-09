@@ -35,12 +35,18 @@ const fakeCtx = new Proxy({}, {
   },
   set(target, key, value) { target[key] = value; return true; },
 });
-window.HTMLCanvasElement.prototype.getContext = () => fakeCtx;
+window.HTMLCanvasElement.prototype.getContext = (type) => {
+  if (type === 'webgl' || type === 'webgl2') return { isContextLost: () => false };
+  return fakeCtx;
+};
 window.prompt = () => 'SR-4821';
 window.confirm = () => true;
 globalThis.prompt = window.prompt;
 globalThis.confirm = window.confirm;
 window.navigator.clipboard = { writeText: async () => {} };
+
+// Run head scripts in the window context so watchdog executes
+dom.window.eval(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
 
 globalThis.window = window;
 globalThis.document = window.document;
@@ -60,8 +66,9 @@ const $ = (id) => window.document.getElementById(id);
 section('1. index.html contract');
 
 const REQUIRED_IDS = [
-  // boot + menu
-  'boot', 'boot-bar-fill', 'boot-status', 'boot-start', 'boot-hint', 'menu-root', 'menu-screen',
+  // boot + watchdog + menu
+  'boot', 'boot-bar-fill', 'boot-status', 'boot-start', 'boot-hint', 'boot-fail', 'boot-fail-detail',
+  'boot-retry', 'menu-root', 'menu-screen',
   'skin-list', 'skin-class-label', 'username-input', 'pc-level', 'pc-xp', 'pc-xp-fill', 'pc-kills',
   'pc-wins', 'pc-races', 'sound-icon', 'net-dot', 'net-label', 'btn-play', 'btn-create-room',
   'btn-join-room', 'seg-mode', 'seg-bots', 'seg-score', 'seg-arena', 'seg-quality', 'btn-settings',
@@ -320,6 +327,40 @@ $('boot-start').click();
 await bootPromise;
 ok($('boot').classList.contains('hidden'), 'boot overlay is removed after entering (menu reveals)');
 ok(menu.config && typeof menu.config.mode === 'string', 'match config survives the boot flow');
+
+/* ═══════════════ 5. boot watchdog & stylesheet wiring ═══════════════ */
+section('5. Boot watchdog & stylesheet wiring');
+const linkEl = window.document.querySelector('link[rel=stylesheet]');
+ok(!!linkEl, 'stylesheet link element is present in head');
+ok(linkEl.getAttribute('href') === './style.css', `stylesheet href is portable relative path ("${linkEl?.getAttribute('href')}")`);
+ok(html.includes('__SR_BOOT_WATCHDOG__') || html.includes('__SR_BOOT_FAIL__'), 'watchdog script is inlined in head');
+ok(html.includes('<noscript>'), 'noscript fallback is present in body');
+ok(!!$('boot-fail'), '#boot-fail diagnostic element exists');
+ok($('boot-fail').hidden === true, '#boot-fail starts hidden');
+ok(!!$('boot-fail-detail'), '#boot-fail-detail element exists');
+ok(!!$('boot-retry'), '#boot-retry button exists');
+
+// test watchdog failure reporting
+window.__SR_BOOT_FAIL__('Simulated WebGL Context Loss');
+ok($('boot-fail').hidden === false, '#boot-fail panel becomes visible on failure');
+ok($('boot-fail-detail').textContent.includes('Simulated WebGL'), 'failure detail captures error message');
+ok($('boot-status').textContent === 'BOOT FAILED', 'boot status shows BOOT FAILED');
+
+// verify main.js error bridge exists
+const mainJsCode = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+ok(mainJsCode.includes('__SR_BOOT_FAIL__'), 'src/main.js catches errors and invokes __SR_BOOT_FAIL__');
+ok(mainJsCode.includes('__SR_BOOT_STARTED__'), 'src/main.js marks __SR_BOOT_STARTED__ on successful launch');
+
+// verify style.css contains styling for boot-fail
+const styleCssCode = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
+ok(styleCssCode.includes('.boot-fail'), 'style.css styles .boot-fail container');
+ok(styleCssCode.includes('.boot-fail-title'), 'style.css styles .boot-fail-title');
+ok(styleCssCode.includes('.boot-fail-detail'), 'style.css styles .boot-fail-detail');
+ok(styleCssCode.includes('#boot-retry'), 'style.css styles #boot-retry');
+
+// verify window error / unhandledrejection handlers registered
+ok(typeof window.__SR_BOOT_FAIL__ === 'function', 'window.__SR_BOOT_FAIL__ is exposed globally');
+ok(window.__SR_BOOT_FAILED__ === true, 'failure flag correctly set');
 
 /* ═══════════════ summary ═══════════════ */
 console.log(`\n\x1b[1m${pass} passed, ${fail} failed\x1b[0m`);
