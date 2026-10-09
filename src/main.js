@@ -1100,6 +1100,14 @@ class Game {
   }
 }
 
-const game = new Game();
-window.__SUPER_RACERS__ = game;
-game.start();
+try {
+  const game = new Game();
+  window.__SUPER_RACERS__ = game;
+  window.__SR_BOOT_STARTED__ = true;
+  game.start();
+} catch (err) {
+  console.error('Failed to boot Super Racers:', err);
+  if (typeof window.__SR_BOOT_FAIL__ === 'function') {
+    window.__SR_BOOT_FAIL__(err);
+  }
+}

@@ -6,14 +6,72 @@
 <meta name="theme-color" content="#05010f" />
 <meta name="description" content="Super Racers — 3D multiplayer kart combat deathmatch. Build speed, grab crates, blow up your friends." />
 <title>SUPER RACERS — Neon Deathmatch</title>
+<link rel="stylesheet" href="./style.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <style>
   /* Critical inline paint: keeps the loader pretty before the sheet lands. */
   html,body{margin:0;height:100%;background:#05010f;color:#e8f4ff;font-family:'Orbitron','Rajdhani',system-ui,sans-serif;overflow:hidden}
   #boot{position:fixed;inset:0;display:grid;place-items:center;z-index:9999}
 </style>
+<script>
+  (function () {
+    window.__SR_BOOT_STARTED__ = false;
+    window.__SR_BOOT_FAIL__ = function (reason) {
+      if (window.__SR_BOOT_FAILED__) return;
+      window.__SR_BOOT_FAILED__ = true;
+      console.error('[SUPER-RACERS BOOT WATCHDOG]', reason);
+      var failPanel = document.getElementById('boot-fail');
+      var failDetail = document.getElementById('boot-fail-detail');
+      var bootStatus = document.getElementById('boot-status');
+      var bootBar = document.getElementById('boot-bar-fill');
+      if (bootBar) bootBar.style.width = '100%';
+      if (bootStatus) bootStatus.textContent = 'BOOT FAILED';
+      if (failDetail) failDetail.textContent = (reason && (reason.stack || reason.message || String(reason))) || 'Unknown boot error';
+      if (failPanel) failPanel.hidden = false;
+    };
+
+    window.addEventListener('error', function (e) {
+      if (!window.__SR_BOOT_STARTED__) {
+        var msg = e.error ? (e.error.stack || e.error.message) : (e.message || 'Script error');
+        window.__SR_BOOT_FAIL__(msg);
+      }
+    });
+
+    window.addEventListener('unhandledrejection', function (e) {
+      if (!window.__SR_BOOT_STARTED__) {
+        var r = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : 'Promise rejected';
+        window.__SR_BOOT_FAIL__(r);
+      }
+    });
+
+    try {
+      var cv = document.createElement('canvas');
+      var gl = cv.getContext('webgl2') || cv.getContext('webgl');
+      if (!gl) {
+        setTimeout(function () {
+          window.__SR_BOOT_FAIL__('WebGL is not supported or hardware acceleration is disabled in this browser.');
+        }, 50);
+      }
+    } catch (err) {
+      setTimeout(function () {
+        window.__SR_BOOT_FAIL__('WebGL initialization check failed: ' + err.message);
+      }, 50);
+    }
+
+    setTimeout(function () {
+      if (!window.__SR_BOOT_STARTED__ && !window.__SR_BOOT_FAILED__) {
+        window.__SR_BOOT_FAIL__('Engine boot timed out after 20 seconds. Assets or script failed to load.');
+      }
+    }, 20000);
+  })();
+</script>
 </head>
 <body>
+<noscript>
+  <div style="position:fixed;inset:0;background:#05010f;color:#ff3366;display:grid;place-items:center;font-family:sans-serif;font-size:18px;text-align:center;padding:20px;z-index:99999">
+    JavaScript is required to play SUPER RACERS — Neon Deathmatch. Please enable JavaScript to continue.
+  </div>
+</noscript>
 
 <!-- ══════════════════════════ 3D VIEWPORT ══════════════════════════ -->
 <div id="viewport">
@@ -38,6 +96,11 @@
     <div class="boot-status" id="boot-status">BOOTING ENGINE…</div>
     <button class="btn btn-primary btn-xl" id="boot-start" hidden>ENTER THE ARENA</button>
     <div class="boot-hint" id="boot-hint">audio + fullscreen unlock required</div>
+    <div class="boot-fail" id="boot-fail" hidden>
+      <div class="boot-fail-title">⚠️ ENGINE FAILED TO LOAD</div>
+      <div class="boot-fail-detail" id="boot-fail-detail"></div>
+      <button class="btn btn-outline" id="boot-retry" onclick="location.reload()">RETRY</button>
+    </div>
   </div>
 </div>
 
