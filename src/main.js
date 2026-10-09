@@ -1100,14 +1100,20 @@ class Game {
   }
 }
 
-try {
-  const game = new Game();
-  window.__SUPER_RACERS__ = game;
-  window.__SR_BOOT_STARTED__ = true;
-  game.start();
-} catch (err) {
+function reportBootFailure(err) {
   console.error('Failed to boot Super Racers:', err);
   if (typeof window.__SR_BOOT_FAIL__ === 'function') {
     window.__SR_BOOT_FAIL__(err);
   }
+}
+
+try {
+  const game = new Game();
+  window.__SUPER_RACERS__ = game;
+  window.__SR_BOOT_STARTED__ = true;
+  // start() is async; without a catch, its rejection would be silently
+  // swallowed (the watchdog ignores rejections once __SR_BOOT_STARTED__ is set).
+  game.start().catch(reportBootFailure);
+} catch (err) {
+  reportBootFailure(err);
 }

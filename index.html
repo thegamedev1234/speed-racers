@@ -26,7 +26,11 @@
       var bootBar = document.getElementById('boot-bar-fill');
       if (bootBar) bootBar.style.width = '100%';
       if (bootStatus) bootStatus.textContent = 'BOOT FAILED';
-      if (failDetail) failDetail.textContent = (reason && (reason.stack || reason.message || String(reason))) || 'Unknown boot error';
+      var detail = '';
+      if (reason) {
+        detail = (typeof reason === 'object' && (reason.stack || reason.message)) || String(reason);
+      }
+      if (failDetail) failDetail.textContent = detail || 'Unknown boot error (no details were reported). Open the browser console for more.';
       if (failPanel) failPanel.hidden = false;
     };
 
@@ -45,17 +49,13 @@
     });
 
     try {
+      // Diagnostic only: the real renderer error (if any) is reported by main.js
+      // via __SR_BOOT_FAIL__, so this probe must not fail the boot on its own.
       var cv = document.createElement('canvas');
       var gl = cv.getContext('webgl2') || cv.getContext('webgl');
-      if (!gl) {
-        setTimeout(function () {
-          window.__SR_BOOT_FAIL__('WebGL is not supported or hardware acceleration is disabled in this browser.');
-        }, 50);
-      }
+      if (!gl) console.warn('[SUPER-RACERS] WebGL probe canvas returned no context; relying on renderer result.');
     } catch (err) {
-      setTimeout(function () {
-        window.__SR_BOOT_FAIL__('WebGL initialization check failed: ' + err.message);
-      }, 50);
+      console.warn('[SUPER-RACERS] WebGL probe failed:', err && err.message);
     }
 
     setTimeout(function () {
