@@ -272,9 +272,9 @@ export class Engine {
   createPools() {
     // release the previous pools (each scene gets fresh, scene-attached pools)
     [this.sparks, this.smoke].forEach((pool) => {
-      if (!pool) return;
-      pool.points.geometry.dispose();
-      pool.points.material.dispose();
+      if (!pool || !pool.points) return;
+      pool.points.geometry?.dispose?.();
+      pool.points.material?.dispose?.();
     });
     const cap = Math.max(200, Math.round(this.quality.particles * 0.62));
     this.sparks = new ParticlePool(this.scene, cap, this.textures.glow, true);
