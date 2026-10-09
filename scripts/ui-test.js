@@ -356,6 +356,7 @@ const styleCssCode = readFileSync(new URL('../style.css', import.meta.url), 'utf
 ok(styleCssCode.includes('.boot-fail'), 'style.css styles .boot-fail container');
 ok(styleCssCode.includes('.boot-fail-title'), 'style.css styles .boot-fail-title');
 ok(styleCssCode.includes('.boot-fail-detail'), 'style.css styles .boot-fail-detail');
+ok(styleCssCode.includes('.boot-fail[hidden]'), 'style.css hides #boot-fail when hidden (display:flex must not override [hidden])');
 ok(styleCssCode.includes('#boot-retry'), 'style.css styles #boot-retry');
 
 // verify window error / unhandledrejection handlers registered

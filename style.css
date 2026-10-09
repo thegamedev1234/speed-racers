@@ -766,6 +766,7 @@ kbd{
   flex-direction:column;align-items:center;gap:10px;max-width:380px;
   animation:fadeUp .3s ease-out;
 }
+.boot-fail[hidden]{display:none}
 .boot-fail-title{
   color:#ff4d6d;font-family:var(--font-display);font-size:14px;
   letter-spacing:.15em;font-weight:700;
