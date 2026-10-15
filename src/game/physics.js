@@ -22,6 +22,11 @@ import * as THREE from 'three';
 export const KART_RADIUS = 1.55;
 export const KART_HEIGHT = 1.5;
 
+/** Hard cap on a single physics step (matches the game-loop delta cap). */
+export const MAX_STEP = 0.1;
+/** Everyone starts on full health — used for spawn validation + repairs. */
+export const DEFAULT_HEALTH = 100;
+
 const GRAVITY = 40;
 const BASE_MAX_SPEED = 33;
 const BASE_ACCEL = 30;
@@ -40,6 +45,12 @@ export const ARCADE = {
 
 const tempV = new THREE.Vector3();
 const tempV2 = new THREE.Vector3();
+
+/** Stand-in used when a kart is stepped without a collision world. */
+const NULL_WORLD = { resolveCircle: () => [], raycast: () => Infinity };
+
+const finite = (n) => Number.isFinite(n);
+const vecFinite = (v) => !!v && finite(v.x) && finite(v.y) && finite(v.z);
 
 /* ═══════════════════════════════════════════════════════════════════════════
    COLLISION WORLD — axis-aligned boxes + cylinders, queried by a moving circle
@@ -287,17 +298,98 @@ export class KartBody {
     this.input = { throttle: 0, steer: 0, steerSmooth: 0, drift: false };
   }
 
+  /**
+   * The kart's facing direction in world space — W accelerates along this.
+   * Facing −Z at yaw 0 (matches the kart mesh orientation), which means
+   * positive Y rotation turns the nose LEFT.
+   * @param {THREE.Vector3} [target] optional out-vector (kept allocation-free)
+   */
+  getWorldDirection(target = null) {
+    const yaw = Number.isFinite(this.yaw) ? this.yaw : 0;
+    const x = -Math.sin(yaw);
+    const z = -Math.cos(yaw);
+    return target ? target.set(x, 0, z) : tempV.set(x, 0, z);
+  }
+
   get forwardVector() {
     // Facing −Z at yaw 0 (matches the kart mesh orientation).
-    return tempV.set(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
+    return this.getWorldDirection();
   }
 
   get rightVector() {
-    return tempV2.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const yaw = Number.isFinite(this.yaw) ? this.yaw : 0;
+    return tempV2.set(Math.cos(yaw), 0, -Math.sin(yaw));
   }
 
   get speedKmh() {
     return Math.abs(this.forwardSpeed) * ARCADE.SPEED_DISPLAY;
+  }
+
+  /**
+   * Guarantee that every field physics, the HUD, combat and the bot AI may read
+   * exists and is finite. Called once when a kart is spawned (so all six karts
+   * are safely initialised before the first physics step) and defensively on
+   * every step, so a stray NaN can never propagate into the simulation.
+   *
+   * @returns {boolean} true when something had to be repaired
+   */
+  ensureValid() {
+    let repaired = false;
+
+    /* ── transforms ─────────────────────────────────────────── */
+    if (!vecFinite(this.position)) { this.position = new THREE.Vector3(); repaired = true; }
+    if (!vecFinite(this.velocity)) { this.velocity = new THREE.Vector3(); repaired = true; }
+    if (!finite(this.yaw)) { this.yaw = 0; repaired = true; }
+    if (!finite(this.steer)) { this.steer = 0; repaired = true; }
+
+    /* ── tuning / identity ──────────────────────────────────── */
+    if (!this.mods || typeof this.mods !== 'object') {
+      this.mods = { maxSpeed: 1, accel: 1, grip: 1, maxHealth: DEFAULT_HEALTH };
+      repaired = true;
+    }
+    ['maxSpeed', 'accel', 'grip'].forEach((key) => {
+      if (!finite(this.mods[key])) { this.mods[key] = 1; repaired = true; }
+    });
+    if (!finite(this.mods.maxHealth) || this.mods.maxHealth <= 0) {
+      this.mods.maxHealth = DEFAULT_HEALTH;
+      repaired = true;
+    }
+    if (typeof this.id !== 'string' || !this.id) { this.id = `kart-${Math.random().toString(36).slice(2, 7)}`; repaired = true; }
+    if (typeof this.name !== 'string' || !this.name) { this.name = 'Racer'; repaired = true; }
+    if (typeof this.skinId !== 'string' || !this.skinId) { this.skinId = 'comet'; repaired = true; }
+
+    /* ── health ─────────────────────────────────────────────── */
+    if (!finite(this.maxHealth) || this.maxHealth <= 0) { this.maxHealth = this.mods.maxHealth || DEFAULT_HEALTH; repaired = true; }
+    if (!finite(this.health)) { this.health = this.maxHealth; repaired = true; }
+    else if (this.health > this.maxHealth) { this.health = this.maxHealth; repaired = true; }
+    else if (this.health < 0) { this.health = 0; repaired = true; }
+    if (!finite(this.shield) || this.shield < 0) { this.shield = 0; repaired = true; }
+    if (typeof this.alive !== 'boolean') { this.alive = this.health > 0; repaired = true; }
+    if (!finite(this.respawnAt)) { this.respawnAt = 0; repaired = true; }
+
+    /* ── timers / derived readouts ──────────────────────────── */
+    ['boostTimer', 'invuln', 'slowTimer', 'slowAmount', 'stuckTimer', 'wallGrind',
+      'speed', 'forwardSpeed', 'lateralSpeed', 'speedMul', 'gripMul',
+      'kills', 'deaths', 'streak', 'bestStreak', 'damageDealt'].forEach((key) => {
+      if (!finite(this[key])) { this[key] = 0; repaired = true; }
+    });
+    if (!finite(this.boostPower)) { this.boostPower = 1; repaired = true; }
+    if (this.speedMul === 0) { this.speedMul = 1; repaired = true; }
+    if (this.gripMul === 0) { this.gripMul = 1; repaired = true; }
+    if (typeof this.drifting !== 'boolean') { this.drifting = false; repaired = true; }
+    if (typeof this.airborne !== 'boolean') { this.airborne = false; repaired = true; }
+    if (!finite(this.position.y) || this.position.y < 0) { this.position.y = 0; repaired = true; }
+
+    /* ── inventory (bots read kart.item on frame 1) ─────────── */
+    if (this.item === undefined) { this.item = null; repaired = true; }
+    if (!finite(this.itemReadyAt)) { this.itemReadyAt = 0; repaired = true; }
+    if (!finite(this.gunUntil)) { this.gunUntil = 0; repaired = true; }
+    if (!finite(this.gunNextAt)) { this.gunNextAt = 0; repaired = true; }
+    if (!finite(this.kothScore)) { this.kothScore = 0; repaired = true; }
+    if (this.ramContacts === undefined) { this.ramContacts = null; }
+    if (this.landedHard === undefined) { this.landedHard = 0; }
+
+    return repaired;
   }
 
   respawn(spawn) {
@@ -332,9 +424,21 @@ export class KartBody {
    * @param {Array} others other KartBody instances for kart-vs-kart contacts
    */
   update(dt, input, world, others = []) {
+    /* ── defensive sanitation ──────────────────────────────────────────────
+       The game loop already caps delta at 0.1 s, and we re-check it here: a
+       single huge step used to be enough to launch a kart into NaN land or
+       give it one colossal acceleration spike.                                */
+    dt = Number.isFinite(dt) ? Math.min(MAX_STEP, Math.max(0, dt)) : 0;
+    input = input || { throttle: 0, steerSmooth: 0, drift: false };
+    world = (world && typeof world.resolveCircle === 'function') ? world : NULL_WORLD;
+    if (!Array.isArray(others)) others = [];
+    this.ensureValid();
+    if (dt <= 0) return;
+
     this.input = input;
-    const throttle = input.throttle || 0;
-    const steerInput = input.steerSmooth ?? input.steer ?? 0;
+    const throttle = Number.isFinite(input.throttle) ? input.throttle : 0;
+    const steerInput = Number.isFinite(input.steerSmooth) ? input.steerSmooth
+      : (Number.isFinite(input.steer) ? input.steer : 0);
     const drift = !!input.drift;
 
     const boosting = this.boostTimer > 0;
@@ -348,7 +452,8 @@ export class KartBody {
     const maxSpeed = BASE_MAX_SPEED * (this.mods.maxSpeed || 1) * this.speedMul * (boosting ? this.boostPower : 1) * (this.slowAmount ? this.slowAmount : 1);
     const accel = BASE_ACCEL * (this.mods.accel || 1) * (boosting ? 2.1 : 1) * (this.slowAmount ? this.slowAmount : 1);
 
-    const fwd = this.forwardVector.clone();
+    // ── W / S drive along the kart's own world direction ──
+    const fwd = this.getWorldDirection().clone();
     const right = this.rightVector.clone();
 
     // ── longitudinal & lateral split ──

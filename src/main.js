@@ -22,11 +22,21 @@ import { NetworkManager } from './network/multiplayer.js';
 import { BotBrain, createBotRoster } from './game/ai.js';
 import { buildKartMesh } from './graphics/karts.js';
 import { KART_SPAWNS, CRATE_SPAWNS, pickSpawnAwayFrom, generateSpawnPoints, THEMES } from './game/arena.js';
+import {
+  MatchStateManager, MATCH_STATE, matchDurationFor, MAX_DELTA, COUNTDOWN_SECONDS,
+} from './game/match-state.js';
 
 const WEAPON_ICONS = {
   missile: '🚀', triple: '🎇', mine: '💣', gun: '🔫', shockwave: '💥',
   boost: '🔥', shield: '🛡️', repair: '🔧', rocket: '🚀', ram: '💢', crash: '💀', self: '💀',
 };
+
+/** Fixed physics step — the loop sub-steps so a slow frame never spikes physics. */
+const PHYSICS_STEP = 1 / 60;
+/** Hard cap on sub-steps per frame (300 ms of catch-up, then time is dropped). */
+const MAX_SUBSTEPS = 8;
+/** How often a repeating frame error is allowed to reach the console (ms). */
+const ERROR_LOG_THROTTLE = 1000;
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -89,12 +99,16 @@ class Game {
     this.entries = [];          // { kart, visual, brain, entityId, ownerId, local }
     this.playerEntry = null;
     this.match = null;
+    this.state = null;          // MatchStateManager for the running match
     this.mode = 'menu';
     this.paused = false;
     this.clock = new THREE.Clock();
     this.accum = 0;
     this.frame = 0;
     this.startedAt = 0;
+    this.frameErrors = 0;
+    this.lastFrameErrorAt = 0;
+    this.lastErrorText = '';
 
     this.input.onEscape = () => {
       if (this.menu.activeModal) { this.menu.closeModals(); return; }
@@ -118,7 +132,7 @@ class Game {
     });
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.match && this.match.state === 'playing') this.setPaused(true);
+      if (document.hidden && this.match && this.match.state === MATCH_STATE.PLAYING) this.setPaused(true);
     });
 
     this.clock.getDelta();
@@ -126,30 +140,73 @@ class Game {
   }
 
   loop = () => {
-    requestAnimationFrame(this.loop);
-    const dt = Math.min(0.05, this.clock.getDelta());
-    this.frame++;
-
+    // ⚠️  Everything — including the clock read and the input reset — lives
+    //     inside this single try/catch. One unexpected error must never stop
+    //     the frame: it is logged and the next frame runs normally, so the
+    //     render loop can never freeze on the player.
     try {
-      if (this.paused) {
-        if (this.mode === 'menu') {
-          this.engine.update(dt, this.showroomCamTarget());
-        } else {
-          this.engine.update(dt, this.idleCamTarget());
-        }
-        this.engine.render();
-      } else if (this.mode === 'menu') {
-        this.engine.update(dt, this.showroomCamTarget());
-        this.engine.render();
-      } else {
-        this.updateMatch(dt);
-      }
+      requestAnimationFrame(this.loop);
+
+      // delta is hard-capped so a tab-switch, a GC pause or a slow frame can
+      // never hand physics a 5-second step (NaN / infinite acceleration spikes).
+      const raw = this.clock.getDelta();
+      const dt = Number.isFinite(raw) ? Math.min(MAX_DELTA, Math.max(0, raw)) : 0;
+      this.frame++;
+
+      this.updateFrame(dt);
     } catch (err) {
-      console.error('[Super Racers] frame error', err);
+      this.reportFrameError(err);
+    } finally {
+      // input edges (pressed/released this frame) are consumed exactly once,
+      // even when the frame threw halfway through.
+      try { this.input.endFrame(); } catch { /* noop */ }
+    }
+  };
+
+  /** One frame: fixed-step simulation + a single render. */
+  updateFrame(dt) {
+    if (this.paused) {
+      this.accum = 0;
+      this.engine.update(dt, this.mode === 'menu' ? this.showroomCamTarget() : this.idleCamTarget());
+      this.engine.render();
+      return;
     }
 
-    this.input.endFrame();
-  };
+    if (this.mode === 'menu') {
+      this.accum = 0;
+      this.engine.update(dt, this.showroomCamTarget());
+      this.engine.render();
+      return;
+    }
+
+    // Fixed-timestep accumulator: physics/HUD always see a stable 1/60 s step,
+    // no matter how long the frame actually took.
+    this.accum = Math.min(this.accum + dt, PHYSICS_STEP * MAX_SUBSTEPS);
+    let steps = 0;
+    while (this.accum >= PHYSICS_STEP && steps < MAX_SUBSTEPS) {
+      this.accum -= PHYSICS_STEP;
+      steps++;
+      this.updateMatch(PHYSICS_STEP);
+      if (this.mode !== 'match') break; // match ended mid-step (results screen)
+    }
+    if (steps === 0) this.updateMatch(dt); // first frame / very high refresh rate
+    this.accum = Math.min(this.accum, PHYSICS_STEP);
+
+    this.engine.render();
+  }
+
+  /** Throttled frame-error reporting — no console flooding, no freeze. */
+  reportFrameError(err) {
+    this.frameErrors++;
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const text = String(err && err.stack ? err.stack : err);
+    const repeat = text === this.lastErrorText;
+    if (!repeat || now - this.lastFrameErrorAt > ERROR_LOG_THROTTLE) {
+      this.lastFrameErrorAt = now;
+      this.lastErrorText = text;
+      console.error(`[Super Racers] frame error #${this.frameErrors}`, err);
+    }
+  }
 
   idleCamTarget() {
     const kart = this.playerEntry?.kart || { position: new THREE.Vector3(), yaw: 0, steer: 0, speed: 0, boostTimer: 0 };
@@ -390,17 +447,41 @@ class Game {
 
     this.playerEntry = this.entries.find((e) => e.kart.isPlayer) || this.entries[0];
 
-    // 4) match state
+    // 3b) every kart is guaranteed spawnable + alive before the first step
+    this.validateEntries();
+
+    // 4) match state — one manager owns the countdown + the 3-minute clock
+    const duration = matchDurationFor({ mode, target });
+    this.state = new MatchStateManager({
+      duration,
+      countdown: COUNTDOWN_SECONDS,
+      onCountdown: (text, sub, isNumber) => {
+        this.hud.countdown(text, sub);
+        this.audio.countdownBeep(!isNumber);
+      },
+      onStart: () => {
+        // "GO!" stays on screen for a beat after the karts unlock
+        const token = this.state;
+        setTimeout(() => { if (this.state === token) this.hud.countdown(null); }, 420);
+        this.hud.banner('FIGHT!', 'gold', 900);
+        this.audio.countdownBeep(true);
+      },
+      onSecond: (seconds) => this.hud.setTimer(seconds),
+      onTimeUp: () => this.endMatch('time-up'),
+      onTick: (snap) => { this.match && (this.match.timeLeft = snap.timeLeft); },
+    });
+
     this.match = {
-      config, mode, target, online, state: 'countdown',
-      countdown: 3.4,
+      config, mode, target, online,
+      state: MATCH_STATE.STARTING,      // mirrored from the state manager each frame
+      countdown: COUNTDOWN_SECONDS,
       elapsed: 0,
-      timeLeft: target === 'time' ? 300 : Infinity,
+      timeLeft: duration,
       scores: new Map(entities.map((e) => [e.id, { kills: 0, deaths: 0, streak: 0 }])),
-      lastCountText: null,
       padCooldown: new Map(),
       remotePing: 0,
     };
+    this.accum = 0;
 
     this.audio.init();
     this.audio.startMusic('match');
@@ -411,15 +492,66 @@ class Game {
       mode === 'koth' ? 'HOLD THE CORE TO SCORE' : (target === 'time' ? 'MOST KILLS IN 5:00' : `FIRST TO ${target} KILLS`),
     );
     this.hud.setScore(0);
-    this.hud.setTimer(target === 'time' ? 300 : 0);
+    // HUD clock starts on the full match time (3:00) and counts down.
+    this.hud.setTimer(this.state.timeLeft);
     this.hud.clearStatusChips();
     this.hud.setAbility(null, 0);
-    this.hud.countdown('3', 'GET READY');
+    this.hud.countdown(String(COUNTDOWN_SECONDS), 'GET READY');
+
+    // 5) keyboard focus — the first WASD / SPACE press must register instantly
+    this.focusGameWindow();
   }
 
-  addKart({ id, name, skin, spawn, mods, isPlayer, local, isBot = false, skill = 0.6, aggression = 0.5 }) {
-    const kart = new KartBody({ id, name, mods, spawn, isPlayer, skinId: skin.id });
-    const visual = buildKartMesh(skin);
+  /** Give the canvas/window input focus so PLAY needs no extra click. */
+  focusGameWindow() {
+    try {
+      const canvasFocused = this.engine.focusCanvas?.() ?? false;
+      if (!canvasFocused && typeof window.focus === 'function') window.focus();
+    } catch (err) {
+      console.warn('[Super Racers] could not focus the game canvas', err);
+    }
+  }
+
+  /**
+   * Kart / bot spawn sanity pass. Runs *before* the first physics step so every
+   * entry has a real position, yaw and health — bots included — which keeps the
+   * AI from reading uninitialised properties on frame 1.
+   */
+  validateEntries() {
+    const spawns = this.spawnPool?.length ? this.spawnPool : KART_SPAWNS;
+    this.entries.forEach((entry, i) => {
+      const kart = entry.kart;
+      if (!kart) return;
+      const repaired = kart.ensureValid();     // fills defaults + kills NaN
+      if (repaired) {
+        const spawn = spawns[i % spawns.length] || { x: 0, z: 0, yaw: 0 };
+        kart.position.set(spawn.x, 0, spawn.z);
+        kart.velocity.set(0, 0, 0);
+        kart.yaw = spawn.yaw || 0;
+        console.warn(`[Super Racers] repaired uninitialised kart "${kart.name || kart.id}"`);
+      }
+    });
+    if (!this.entries.length) console.warn('[Super Racers] match started with no karts');
+  }
+
+  addKart({
+    id, name, skin, spawn, mods, isPlayer, local, isBot = false, skill = 0.6, aggression = 0.5,
+  }) {
+    // every kart is born with a full state: finite spawn, 100 HP (skin-scaled
+    // armour), zero velocity — nothing the first physics step could trip over.
+    const safeSpawn = (spawn && Number.isFinite(spawn.x) && Number.isFinite(spawn.z))
+      ? { x: spawn.x, y: 0, z: spawn.z, yaw: spawn.yaw || 0 }
+      : { x: 0, y: 0, z: 0, yaw: 0 };
+    const kart = new KartBody({
+      id: id || `kart-${this.entries.length}`,
+      name: name || 'Racer',
+      mods: mods || {},
+      spawn: safeSpawn,
+      isPlayer: !!isPlayer,
+      skinId: skin?.id || 'comet',
+    });
+    kart.ensureValid();
+    const visual = buildKartMesh(skin || getSkin(kart.skinId));
     visual.group.position.copy(kart.position);
     visual.group.rotation.y = kart.yaw;
     this.engine.scene.add(visual.group);
@@ -464,26 +596,18 @@ class Game {
     if (!match) { this.mode = 'menu'; return; }
     const karts = this.entries.map((e) => e.kart);
 
-    /* countdown ------------------------------------------------- */
-    if (match.state === 'countdown') {
-      match.countdown -= dt;
-      const n = Math.ceil(match.countdown - 0.4);
-      const text = n > 0 ? String(n) : 'GO!';
-      if (text !== match.lastCountText) {
-        match.lastCountText = text;
-        this.hud.countdown(text, n > 0 ? 'GET READY' : 'DEATHMATCH');
-        if (n > 0) this.audio.countdownBeep(false);
-        else {
-          this.audio.countdownBeep(true);
-          this.hud.banner('FIGHT!', 'gold', 900);
-        }
-      }
-      if (match.countdown <= 0.35) {
-        match.state = 'playing';
-        this.hud.countdown(null);
-      }
+    /* match clock ---------------------------------------------------------
+       The MatchStateManager owns STARTING (3…2…1…GO!) → PLAYING (3:00 ticking
+       down) → OVER. Mirror it onto `match` so every other system keeps reading
+       the same shape.                                                    */
+    if (this.state) {
+      this.state.update(dt);
+      match.state = this.state.state;
+      match.elapsed = this.state.elapsed;
+      match.timeLeft = this.state.timeLeft;
+      match.countdown = this.state.countdownLeft;
     }
-    const racing = match.state === 'playing';
+    const racing = match.state === MATCH_STATE.PLAYING;
     const frozen = !racing;
 
     /* player --------------------------------------------------- */
@@ -507,14 +631,23 @@ class Game {
     }
 
     /* bots ----------------------------------------------------- */
-    const ctx = { karts, world: this.world, combat: this.combat, crates: this.combat.crates, time: performance.now() / 1000 };
+    const ctx = { karts, world: this.world, combat: this.combat, crates: this.combat?.crates || [], time: performance.now() / 1000 };
     for (const entry of this.entries) {
       if (!entry.local || !entry.brain) continue;
       if (frozen) {
         entry.kart.update(dt, { throttle: 0, steerSmooth: 0, drift: false }, this.world, karts);
-      } else {
-        entry.brain.update(dt, ctx);
+      } else if (!entry.brainBroken) {
+        // A single misbehaving bot must never be able to kill the frame.
+        try {
+          entry.brain.update(dt, ctx);
+        } catch (err) {
+          entry.brainBroken = true;
+          entry.brain.input = { throttle: 0, steerSmooth: 0, drift: false };
+          console.error(`[Super Racers] bot "${entry.kart?.name}" AI halted`, err);
+        }
         entry.kart.update(dt, entry.brain.input, this.world, karts);
+      } else {
+        entry.kart.update(dt, { throttle: 0, steerSmooth: 0, drift: false }, this.world, karts);
       }
       this.syncVisual(entry, dt);
     }
@@ -555,15 +688,6 @@ class Game {
       }
     }
 
-    /* match clock ---------------------------------------------- */
-    if (racing) {
-      match.elapsed += dt;
-      if (match.timeLeft !== Infinity) {
-        match.timeLeft -= dt;
-        if (match.timeLeft <= 0) this.endMatch('time-up');
-      }
-    }
-
     /* HUD ------------------------------------------------------ */
     this.updateHud(dt, karts);
 
@@ -584,7 +708,6 @@ class Game {
       lookDelta: look, zoom, dragging: this.input.dragging,
     });
     if (this.arena) this.arena.update(dt, this.engine.time);
-    this.engine.render();
 
     /* engine audio --------------------------------------------- */
     if (playerKart) {
@@ -771,18 +894,19 @@ class Game {
     const leader = rows[0];
     this.hud.setLeader(leader?.name, leader?.kills ?? 0);
     if (leader) this.hud.setScore(this.match.mode === 'koth' ? Math.floor(playerKart?.kothScore || 0) : (rows.find((r) => r.isMe)?.kills ?? 0));
+    // Top-centre box (NEON DEATHMATCH): the match clock, counting down from
+    // 3:00. HUD.setTimer() caches the string, so the DOM is only touched when
+    // the second actually changes (3:00 → 2:59).
+    this.hud.setTimer(this.state ? this.state.timeLeft : this.match.timeLeft);
     if (this.match.mode === 'koth') {
-      this.hud.setTimer(this.match.elapsed);
       this.hud.setHint(`CORE POINTS ${Math.floor(playerKart?.kothScore || 0)} / ${this.match.kothTarget || 45}`, (this.match.kothHolder === playerKart));
-    } else {
-      this.hud.setTimer(this.match.timeLeft === Infinity ? this.match.elapsed : this.match.timeLeft);
     }
 
     this.hud.setScoreboard(rows, this.input.isDown('scoreboard'));
     this.hud.update(dt);
 
     // local win condition
-    if (this.match.state === 'playing' && !this.match.online && this.match.mode === 'deathmatch' && typeof this.match.target === 'number') {
+    if (this.match.state === MATCH_STATE.PLAYING && !this.match.online && this.match.mode === 'deathmatch' && typeof this.match.target === 'number') {
       const winner = this.entries.find((e) => e.kart.kills >= this.match.target);
       if (winner) this.endMatch('target-reached', winner.kart);
     }
@@ -955,7 +1079,7 @@ class Game {
   }
 
   onNetworkMatchEnd(payload) {
-    if (!this.match || this.match.state === 'over') return;
+    if (!this.match || this.match.state === MATCH_STATE.OVER) return;
     const iWon = payload.winner?.id === this.myId || payload.winner?.id === this.playerEntry?.entityId;
     this.endMatch('server', null, { forcedStandings: payload.standings, iWon: !!iWon });
   }
@@ -965,8 +1089,9 @@ class Game {
      ══════════════════════════════════════════════════════════════ */
   endMatch(reason, winnerKart = null, { forcedStandings = null, iWon = false } = {}) {
     const match = this.match;
-    if (!match || match.state === 'over') return;
-    match.state = 'over';
+    if (!match || match.state === MATCH_STATE.OVER) return;
+    match.state = MATCH_STATE.OVER;
+    this.state?.finish(reason);
     this.hud.countdown(null);
     this.hud.setScoreboard([], false);
 
@@ -1041,7 +1166,7 @@ class Game {
 
   togglePause() {
     if (this.mode !== 'match' && this.mode !== 'results') return;
-    if (!this.match || this.match.state === 'over') return;
+    if (!this.match || this.match.state === MATCH_STATE.OVER) return;
     this.setPaused(!this.paused);
   }
 
@@ -1085,6 +1210,7 @@ class Game {
     this.entries = [];
     this.playerEntry = null;
     this.match = null;
+    this.state = null;
     this.paused = false;
     document.getElementById('pause-root')?.classList.add('hidden');
     this.hud.hide();

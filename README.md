@@ -36,6 +36,9 @@ npm run preview    # or: npm start (serves dist/ + socket.io from one process)
 
 ## 🎮 Controls
 
+Keys are captured on `window` (global `keydown` / `keyup`), and clicking **PLAY NOW**
+puts keyboard focus straight on the canvas — no extra click needed before you drive.
+
 | Action | Key |
 |---|---|
 | **Accelerate** | `W` / `↑` |
@@ -65,7 +68,14 @@ npm run preview    # or: npm start (serves dist/ + socket.io from one process)
 layout, animated set-dressing, holographic core and boost pad placement.
 
 **2 modes** — *Deathmatch* (first to 15/25 kills, or most kills in 5:00) and
-*King of the Hill* (hold the central core to bank points).
+*King of the Hill* (hold the central core to bank points). Every round runs on a
+match clock: **3:00** ticking down in the HUD's top-centre box, so a stalemate
+still has a winner (most kills when time runs out).
+
+**Match flow** — a `MatchStateManager` owns the round:
+`STARTING` shows the **3… 2… 1… GO!** countdown with the karts frozen →
+`PLAYING` unlocks the karts, starts the **180 s** timer and ticks the HUD clock once
+per second (`3:00 → 2:59 → 2:58 …`) → `OVER` freezes the clock for the results screen.
 
 **Bots with real brains** — skill-scaled pursuit AI: crate looting, circle-strafing, target
 leading, whisker-based obstacle avoidance, drift discipline, trigger discipline per weapon,
@@ -93,6 +103,7 @@ src/
   main.js                   # entry point: wires profile/audio/engine/HUD/menu/net, game loop
   game/
     engine.js               # Three.js renderer, showroom⇄arena scene transitions, FX, camera
+    match-state.js          # match state machine: 3…2…1…GO! countdown + 3:00 match clock
     physics.js              # custom arcade physics: AABB + circle + raycast collision world
     input.js                # keyboard + pointer input (W A S D, SPACE = ability)
     combat.js               # crates, ability roster, projectiles, damage, kills
@@ -112,6 +123,8 @@ server/
   server.js                 # Socket.IO relay + static dist/ hosting (also /health, /rooms)
 scripts/
   smoke-test.js             # headless test suite for physics, combat, AI, arena, protocol
+  ui-test.js                # jsdom suite for the real index.html + menu/HUD controllers
+  loop-test.js              # boots the real game loop headlessly: countdown, clock, controls
   dev-all.js                # runs the dev server + relay together
 ```
 
@@ -136,9 +149,10 @@ tallies kills/deaths, and declares the winner when the kill target is reached.
 ## 🧪 Tests
 
 ```bash
-npm test                  # both suites — 190 assertions, 0 failures
+npm test                     # all three suites — 287 assertions, 0 failures
 node scripts/smoke-test.js   # 104 assertions — logic / physics / networking
-node scripts/ui-test.js      #  86 assertions — menu + HUD (jsdom on the real index.html)
+node scripts/ui-test.js      # 106 assertions — menu + HUD (jsdom on the real index.html)
+node scripts/loop-test.js    #  77 assertions — the real game loop, headless (jsdom + stub WebGL)
 ```
 
 `smoke-test.js` covers the contracts that matter:
@@ -160,6 +174,23 @@ node scripts/ui-test.js      #  86 assertions — menu + HUD (jsdom on the real 
 - segmented match setup, room modals (create / join / invalid code), lobby, results
 - HUD surfaces: health states, speedo, ability slot + cooldown ring, kill feed, damage
   numbers/directions, status chips, TAB scoreboard, countdown, banners, death/respawn
+
+`loop-test.js` boots the **real entry point** (`src/main.js` + `Engine` + HUD + combat + AI)
+inside jsdom with a stubbed WebGL context and drives the real `requestAnimationFrame` loop
+frame by frame — the regression suite for "the match freezes on load":
+
+- **the loop never throws** — 20 s of live driving logs zero frame errors, and a 5-second
+  delta spike produces no NaN, no teleport and no crash (delta is capped at 0.1 s)
+- **6 karts** (player + 5 bots) spawn with finite positions, full health (baseline 100 hp)
+  and distinct spawn points *before* the first physics step; all 5 bots have brains
+- **match state machine** — `3…2…1…GO!` with the karts frozen, then PLAYING
+- **HUD clock** — `3:00` at the start of PLAYING, `2:59` after one second, `2:58`, `2:56` …
+  and back to `3:00` on a rematch
+- **controls from `window`** — `W` drives along `kart.getWorldDirection()`, `A` increases yaw,
+  `D` decreases it, `S` reverses, `SPACE` fires the held ability
+- **FX API** — `sparks` / `smoke` / `explosion` / `kartExplosion` / `buildMissile` … are all
+  callable (the particle pools used to shadow those methods and abort the frame)
+- time-up → results screen → rematch, plus the `MatchStateManager` unit contract
 
 ---
 
