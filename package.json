@@ -10,9 +10,10 @@
     "server": "node server/server.js",
     "start": "node server/server.js",
     "dev:all": "node scripts/dev-all.js",
-    "test": "node scripts/smoke-test.js && node scripts/ui-test.js",
+    "test": "node scripts/smoke-test.js && node scripts/ui-test.js && node scripts/loop-test.js",
     "test:logic": "node scripts/smoke-test.js",
-    "test:ui": "node scripts/ui-test.js"
+    "test:ui": "node scripts/ui-test.js",
+    "test:loop": "node scripts/loop-test.js"
   },
   "dependencies": {
     "socket.io": "^4.8.1",

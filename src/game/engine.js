@@ -238,6 +238,25 @@ export class Engine {
     }
   }
 
+  /**
+   * Put keyboard focus on the canvas (and drop it from any text field) so the
+   * very first WASD / SPACE press after clicking PLAY is handled — no extra
+   * click required. Returns true when the canvas took focus.
+   */
+  focusCanvas() {
+    const canvas = this.renderer?.domElement;
+    if (!canvas) return false;
+    // focusable programmatically, but kept out of the tab order
+    canvas.tabIndex = -1;
+    const active = document.activeElement;
+    if (active && active !== canvas && typeof active.blur === 'function'
+      && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+      active.blur();
+    }
+    try { canvas.focus({ preventScroll: true }); } catch { try { canvas.focus(); } catch { /* noop */ } }
+    return document.activeElement === canvas;
+  }
+
   /* ── shared assets / pools ─────────────────────────────────── */
   initCommon() {
     this.textures = {
@@ -270,15 +289,22 @@ export class Engine {
   }
 
   createPools() {
+    // ⚠️  These are named `sparkPool` / `smokePool` on purpose: `sparks()` and
+    //     `smoke()` are prototype methods of this class (the FX interface used
+    //     by combat / the game loop). Assigning them to `this.sparks` would
+    //     shadow those methods with the pool object, so every FX call would
+    //     throw `TypeError: this.engine.sparks is not a function` — which used
+    //     to abort the frame right before the HUD update + render, freezing the
+    //     whole match on the first crate pickup or wall scrape.
     // release the previous pools (each scene gets fresh, scene-attached pools)
-    [this.sparks, this.smoke].forEach((pool) => {
+    [this.sparkPool, this.smokePool].forEach((pool) => {
       if (!pool || !pool.points) return;
       pool.points.geometry?.dispose?.();
       pool.points.material?.dispose?.();
     });
     const cap = Math.max(200, Math.round(this.quality.particles * 0.62));
-    this.sparks = new ParticlePool(this.scene, cap, this.textures.glow, true);
-    this.smoke = new ParticlePool(this.scene, Math.round(cap * 0.55), this.textures.smoke, false);
+    this.sparkPool = new ParticlePool(this.scene, cap, this.textures.glow, true);
+    this.smokePool = new ParticlePool(this.scene, Math.round(cap * 0.55), this.textures.smoke, false);
 
     // sprite + light pools are shared objects, so re-parenting them onto the
     // freshly built scene is enough (three removes them from the old parent).
@@ -503,8 +529,8 @@ export class Engine {
 
   detachPools() {
     if (!this.scene) return;
-    if (this.sparks) this.scene.remove(this.sparks.points);
-    if (this.smoke) this.scene.remove(this.smoke.points);
+    if (this.sparkPool) this.scene.remove(this.sparkPool.points);
+    if (this.smokePool) this.scene.remove(this.smokePool.points);
     this.spritePool.forEach((s) => this.scene.remove(s.sprite));
     this.lightPool.forEach((l) => this.scene.remove(l.light));
   }
@@ -518,8 +544,8 @@ export class Engine {
      ═══════════════════════════════════════════════════════════ */
   update(dt, camTarget = null) {
     this.time += dt;
-    if (this.sparks) this.sparks.update(dt);
-    if (this.smoke) this.smoke.update(dt);
+    if (this.sparkPool) this.sparkPool.update(dt);
+    if (this.smokePool) this.smokePool.update(dt);
     this.updateSprites(dt);
     this.updateLights(dt);
     this.updateRings(dt);
@@ -758,11 +784,11 @@ export class Engine {
   }
 
   sparks(pos, { count = 12, color = 0xffd166, speed = 10, up = false, spread = 1 } = {}) {
-    if (!this.sparks) return;
+    if (!this.sparkPool || !pos) return;
     for (let i = 0; i < count; i++) {
       const dir = new THREE.Vector3(Math.random() - 0.5, up ? Math.random() * 0.9 : Math.random() - 0.2, Math.random() - 0.5).normalize();
       const sp = speed * (0.35 + Math.random() * 0.9) * spread;
-      this.sparks.spawn({
+      this.sparkPool.spawn({
         x: pos.x, y: pos.y, z: pos.z,
         vx: dir.x * sp, vy: dir.y * sp + (up ? 3 : 1.5), vz: dir.z * sp,
         life: 0.35 + Math.random() * 0.5, size: 0.5 + Math.random() * 0.75,
@@ -772,11 +798,11 @@ export class Engine {
   }
 
   smoke(pos, { count = 6, scale = 1, color = 0x8a8a9a, vel = null } = {}) {
-    if (!this.smoke) return;
+    if (!this.smokePool || !pos) return;
     for (let i = 0; i < count; i++) {
       const dir = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.7 + 0.1, Math.random() - 0.5).normalize();
       const sp = 2.2 * (0.4 + Math.random()) * scale;
-      this.smoke.spawn({
+      this.smokePool.spawn({
         x: pos.x + dir.x * 0.6, y: pos.y + dir.y * 0.4, z: pos.z + dir.z * 0.6,
         vx: (vel?.x || 0) * 0.3 + dir.x * sp,
         vy: (vel?.y || 0) * 0.3 + dir.y * sp * 0.6,

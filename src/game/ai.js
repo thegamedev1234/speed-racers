@@ -54,28 +54,52 @@ export class BotBrain {
     this.lastAbility = null;
   }
 
-  update(dt, ctx) {
-    const kart = this.kart;
-    if (!kart.alive) {
-      this.input.throttle = 0;
-      this.input.steerSmooth = 0;
-      this.input.drift = false;
-      return;
-    }
+  /** Idle input — used whenever the brain cannot (or must not) drive. */
+  _idle() {
+    this.input.throttle = 0;
+    this.input.steerSmooth = 0;
+    this.input.drift = false;
+    this.input.ability = false;
+    return this.input;
+  }
 
-    const { karts, world, combat, crates, time } = ctx;
+  update(dt, ctx = {}) {
+    const kart = this.kart;
+
+    /* ── guards: a bot must never read an uninitialised property ──────────
+       The brains run on the very first physics frame, alongside freshly
+       spawned karts, so every field is checked before use.                 */
+    if (!kart || typeof kart !== 'object') return this._idle();
+    kart.ensureValid?.();
+    if (!Number.isFinite(kart.position?.x) || !Number.isFinite(kart.position?.z)) return this._idle();
+    if (!kart.alive) return this._idle();
+
+    const step = Number.isFinite(dt) ? Math.min(0.1, Math.max(0, dt)) : 0;
+    dt = step;
+    const {
+      karts = [], world = null, combat = null, crates = [],
+      time = (typeof performance !== 'undefined' ? performance.now() / 1000 : Date.now() / 1000),
+    } = ctx || {};
+    const kartList = Array.isArray(karts) ? karts : [];
+    const crateList = Array.isArray(crates) ? crates : [];
+    const now = Number.isFinite(time) ? time : 0;
+    /** raycast helper — missing / broken worlds simply report "clear". */
+    const probe = (origin, dir, maxDist) => (
+      world && typeof world.raycast === 'function' ? world.raycast(origin, dir, maxDist, 1) : maxDist
+    );
+
     this.reactionTimer -= dt;
     this.fireCooldown -= dt;
 
     /* ── unstick ───────────────────────────────────────────── */
-    if (time < this.unstickUntil) {
+    if (now < this.unstickUntil) {
       this.input.throttle = -1;
       this.input.steerSmooth = this.unstickDir;
       this.input.drift = false;
       return;
     }
-    if (kart.stuckTimer > 1.1) {
-      this.unstickUntil = time + 0.9;
+    if ((kart.stuckTimer || 0) > 1.1) {
+      this.unstickUntil = now + 0.9;
       this.unstickDir = Math.random() < 0.5 ? -1 : 1;
       return;
     }
@@ -86,22 +110,24 @@ export class BotBrain {
     let pursuing = false;
     let goalSpeed = 1;
 
-    const hurt = kart.health < kart.maxHealth * 0.5;
+    const maxHealth = Number.isFinite(kart.maxHealth) && kart.maxHealth > 0 ? kart.maxHealth : 100;
+    const health = Number.isFinite(kart.health) ? kart.health : maxHealth;
+    const hurt = health < maxHealth * 0.5;
     const wantCrate = !kart.item || hurt || kart.item.id === 'repair';
     let bestCrate = null;
     let bestCrateDist = Infinity;
-    if (wantCrate && crates) {
-      for (const c of crates) {
-        if (!c.active) continue;
+    if (wantCrate) {
+      for (const c of crateList) {
+        if (!c || !c.active || !Number.isFinite(c.x) || !Number.isFinite(c.z)) continue;
         const d = Math.hypot(c.x - kart.position.x, c.z - kart.position.z);
         if (d < bestCrateDist) { bestCrateDist = d; bestCrate = c; }
       }
     }
 
     // re-acquire target every ~1.2s (or when it dies)
-    if (time > this.targetAt || !this.target || !this.target.alive) {
-      this.target = this.pickTarget(karts);
-      this.targetAt = time + 1.2;
+    if (now > this.targetAt || !this.target || !this.target.alive) {
+      this.target = this.pickTarget(kartList);
+      this.targetAt = now + 1.2;
     }
 
     const target = this.target;
@@ -120,8 +146,10 @@ export class BotBrain {
       this.state = 'hunt';
       // lead the target a little when they're moving fast (skill scaled)
       const lead = Math.min(1.1, targetDist / 45) * this.skill;
-      const px = target.position.x + target.velocity.x * lead * 0.45;
-      const pz = target.position.z + target.velocity.z * lead * 0.45;
+      const tvx = Number.isFinite(target.velocity?.x) ? target.velocity.x : 0;
+      const tvz = Number.isFinite(target.velocity?.z) ? target.velocity.z : 0;
+      const px = target.position.x + tvx * lead * 0.45;
+      const pz = target.position.z + tvz * lead * 0.45;
       // circle-strafe: approach from an offset angle
       const ang = Math.atan2(pz - kart.position.z, px - kart.position.x) + this.aimError * 0.5;
       const standoff = kart.item ? 14 : 8;
@@ -130,11 +158,11 @@ export class BotBrain {
       this.state = 'hunt';
     } else {
       // wander to a random open point
-      if (time > this.wander.until) {
+      if (now > this.wander.until) {
         this.wander = {
           x: (Math.random() - 0.5) * 100,
           z: (Math.random() - 0.5) * 100,
-          until: time + 4 + Math.random() * 4,
+          until: now + 4 + Math.random() * 4,
         };
       }
       goalX = this.wander.x;
@@ -149,7 +177,7 @@ export class BotBrain {
 
     /* ── whisker obstacle avoidance ────────────────────────── */
     const origin = { x: kart.position.x, z: kart.position.z };
-    const speed = Math.abs(kart.forwardSpeed);
+    const speed = Number.isFinite(kart.forwardSpeed) ? Math.abs(kart.forwardSpeed) : 0;
     const lookAhead = 9 + Math.min(16, speed * 0.5);
     const feelers = [0, 0.42, -0.42, 0.9, -0.9];
     let clearanceLeft = Infinity;
@@ -157,8 +185,8 @@ export class BotBrain {
     let blocked = false;
 
     for (const off of feelers) {
-      const dir = forwardOf(kart.yaw + off);
-      const dist = world.raycast(origin, dir, lookAhead, 1);
+      const dir = forwardOf((Number.isFinite(kart.yaw) ? kart.yaw : 0) + off);
+      const dist = probe(origin, dir, lookAhead);
       if (dist < lookAhead) {
         blocked = true;
         const weight = Math.max(0.25, 1 - dist / lookAhead);
@@ -176,7 +204,7 @@ export class BotBrain {
     if (blocked && speed > 24) goalSpeed = 0.62;
     else if (pursuing && targetDist < 26) goalSpeed = 1;
 
-    const angleDiff = wrapAngle(desiredYaw - kart.yaw);
+    const angleDiff = wrapAngle(desiredYaw - (Number.isFinite(kart.yaw) ? kart.yaw : 0));
     const steerTarget = THREE.MathUtils.clamp(angleDiff * 1.9, -1, 1);
     this.input.steerSmooth = steerTarget;
     this.input.throttle = goalSpeed * (this.skill > 0.5 ? 1 : 0.86);
@@ -188,14 +216,15 @@ export class BotBrain {
     /* ── weapon usage ──────────────────────────────────────── */
     this.input.ability = false;
     const ability = kart.item;
-    if (ability && this.reactionTimer <= 0 && this.fireCooldown <= 0) {
+    const canFire = combat && typeof combat.useAbility === 'function';
+    if (canFire && ability && ability.id && this.reactionTimer <= 0 && this.fireCooldown <= 0) {
       const spec = FIRE_SPEC[ability.id] || FIRE_SPEC.missile;
       let doFire = false;
 
       if (spec.instant) {
         // utility items are used straight away so the bot can loot again
         doFire = ability.id === 'repair'
-          ? kart.health < kart.maxHealth - (spec.needsDamage || 10)
+          ? health < maxHealth - (spec.needsDamage || 10)
           : true;
       } else if (target && target.alive) {
         const toTarget = Math.atan2(-(target.position.x - kart.position.x), -(target.position.z - kart.position.z));
@@ -219,10 +248,12 @@ export class BotBrain {
 
   pickTarget(karts) {
     const kart = this.kart;
+    if (!kart || !Number.isFinite(kart.position?.x) || !Array.isArray(karts)) return null;
     let best = null;
     let bestScore = -Infinity;
     for (const k of karts) {
-      if (k === kart || !k.alive) continue;
+      if (!k || k === kart || !k.alive) continue;
+      if (!Number.isFinite(k.position?.x) || !Number.isFinite(k.position?.z)) continue;
       const dist = Math.hypot(k.position.x - kart.position.x, k.position.z - kart.position.z);
       let score = 120 - dist;
       if (k.health < 65) score += 55;           // finish the weak

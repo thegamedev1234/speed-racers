@@ -67,6 +67,8 @@ export class HUD {
     this.hitTimer = null;
     this.statusChips = new Map();
     this.visible = false;
+    this.timerText = null;
+    this.timerLow = null;
 
     this.el.abilitySlot?.classList.add('empty');
   }
@@ -101,13 +103,28 @@ export class HUD {
     if (this.el.leader) this.el.leader.textContent = name ? `LEADER: ${name} · ${kills}` : 'LEADER: —';
   }
 
+  /**
+   * Match clock for the top-centre box (NEON DEATHMATCH), formatted mm:ss.
+   *
+   * The clock counts *down*, so the whole-second value rounds up: 179.98 s of a
+   * 3:00 match still reads "3:00" and only becomes "2:59" one second later. The
+   * DOM is only written when the text actually changes — clean 3:00 → 2:59 → …
+   * updates, one per second, no per-frame churn.
+   */
   setTimer(seconds) {
     if (!this.el.timer) return;
-    const s = Math.max(0, Math.floor(seconds));
-    const m = Math.floor(s / 60);
-    const r = s % 60;
-    this.el.timer.textContent = `${m}:${String(r).padStart(2, '0')}`;
-    this.el.timer.classList.toggle('low', s <= 30);
+    const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    const s = Math.ceil(safe - 1e-6);
+    const text = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    if (text !== this.timerText) {
+      this.timerText = text;
+      this.el.timer.textContent = text;
+    }
+    const low = s <= 30;
+    if (low !== this.timerLow) {
+      this.timerLow = low;
+      this.el.timer.classList.toggle('low', low);
+    }
   }
 
   /* ── vital stats ────────────────────────────────────────────── */
