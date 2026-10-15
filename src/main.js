@@ -44,7 +44,9 @@ class Game {
   constructor() {
     this.profile = new ProfileManager();
     this.audio = new SoundSystem(this.profile);
-    this.input = new InputManager();
+    // global keyboard: bound to `window`, so W A S D / SPACE / arrows work
+    // without the canvas having to be clicked first (see focusGameWindow()).
+    this.input = new InputManager(window);
     this.world = new CollisionWorld();
 
     this.engine = new Engine({
