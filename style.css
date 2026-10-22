@@ -395,6 +395,34 @@ kbd{
 }
 .code-input.invalid{border-color:var(--danger);box-shadow:0 0 18px rgba(255,59,92,.4)}
 .code-error{font-size:11.5px;color:#ff98aa;letter-spacing:.08em}
+
+/* ── CREATE PRIVATE GAME PICKERS ───────────────────────────────────────── */
+.cr-field{display:flex;flex-direction:column;gap:8px}
+.cr-field label{font-size:11px;letter-spacing:.16em;color:var(--text-dim);font-family:var(--font-display)}
+.cr-picker{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:rgba(6,3,18,.6);border-radius:var(--r-md);padding:6px 12px}
+.cr-arrow{
+  width:34px;height:34px;border-radius:50%;border:1px solid var(--line-hot);
+  background:rgba(255,255,255,.06);color:var(--text);font-size:18px;font-weight:700;
+  cursor:pointer;display:grid;place-items:center;line-height:1;transition:.2s;
+}
+.cr-arrow:hover{background:rgba(34,225,255,.15);border-color:var(--cyan);color:var(--cyan)}
+.cr-arrow:active{transform:scale(.92)}
+.cr-value{font-family:var(--font-display);font-size:17px;letter-spacing:.14em;color:var(--text);min-width:150px;text-align:center}
+.cr-toggles{display:flex;flex-direction:column;gap:10px}
+.cr-toggle-row{display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--text-dim)}
+.cr-toggle-row span{flex:1;color:var(--text)}
+
+/* gold/orange PLAY button (Smash Karts style) */
+.btn-gold{
+  background:linear-gradient(140deg,var(--amber),#ffd166);
+  color:#160022;border-color:var(--amber);
+  box-shadow:0 0 22px rgba(255,194,61,.35);
+}
+.btn-gold:hover{
+  background:linear-gradient(140deg,#ffd166,var(--amber));
+  box-shadow:0 0 34px rgba(255,194,61,.55),0 0 12px rgba(255,255,255,.25);
+}
+.btn-gold:active{transform:translateY(0) scale(.98)}
 .prof-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .prof-stat{
   background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:var(--r-sm);
@@ -472,8 +500,16 @@ kbd{
 .rr-rank{font-family:var(--font-display);font-size:15px;width:26px;color:var(--text-faint)}
 .result-row.podium .rr-rank{color:var(--amber)}
 .rr-name{flex:1;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rr-kd{font-size:12px;color:var(--text-dim);font-family:var(--font-display)}
+.rr-kills,.rr-deaths,.rr-score{font-size:12px;color:var(--text-dim);font-family:var(--font-display);width:56px;text-align:center}
 .rr-xp{font-size:11px;color:var(--lime);width:74px;text-align:right;font-family:var(--font-display)}
+.result-head{
+  display:flex;align-items:center;gap:12px;padding:10px 14px 8px;font-size:10px;letter-spacing:.24em;
+  color:var(--text-faint);font-family:var(--font-display);border-bottom:1px solid var(--line);
+}
+.result-head .rr-rank{width:26px}
+.result-head .rr-name{flex:1}
+.result-head .rr-kills,.result-head .rr-deaths,.result-head .rr-score{width:56px;text-align:center}
+.result-head .rr-xp{width:74px;text-align:right}
 .results-reward{text-align:center;font-size:12.5px;color:var(--cyan);letter-spacing:.1em;padding:6px 20px}
 .results-actions{display:flex;gap:12px;justify-content:center;padding:18px 22px 24px}
 

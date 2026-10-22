@@ -155,9 +155,60 @@ ok(menu.config.arena === 'reactor', 'segment control updates the arena config');
 /* PLAY / CREATE / JOIN flow */
 $('btn-play').click();
 ok(calls.some((c) => c[0] === 'play' && c[1].bots === 7), 'PLAY passes the configured match setup');
-$('btn-create-room').click();
-const created = calls.find((c) => c[0] === 'create');
-ok(!!!created === false && /^SR-\d{4}$/.test(created[1].code), `CREATE ROOM generates a code (${created?.[1]?.code})`);
+    /* ── CREATE ROOM now opens the private-game modal ── */
+    $('btn-create-room').click();
+    ok($('modal-create-room').classList.contains('active'), 'CREATE ROOM opens the Create Private Game modal');
+    ok($('lobby-screen').classList.contains('hidden'), 'no lobby is shown yet — a match is not started');
+    ok(calls.every((c) => c[0] !== 'create'), 'no room is created until the host presses PLAY');
+
+    /* arrow pickers cycle through the options */
+    const modePicker = $('cr-value-mode').closest('.cr-picker');
+    modePicker.querySelector('.cr-arrow[data-dir="+1"]').click();
+    ok($('cr-value-mode').textContent === 'King of the Hill', 'mode arrow toggles to King of the Hill');
+    modePicker.querySelector('.cr-arrow[data-dir="-1"]').click();
+    ok($('cr-value-mode').textContent === 'Free For All', 'mode arrow toggles back');
+
+    const fmtPicker = $('cr-value-format').closest('.cr-picker');
+    fmtPicker.querySelector('.cr-arrow[data-dir="+1"]').click();
+    ok($('cr-value-format').textContent === 'Timer', 'format arrow toggles to Timer');
+
+    const tmrPicker = $('cr-value-timer').closest('.cr-picker');
+    tmrPicker.querySelector('.cr-arrow[data-dir="+1"]').click();
+    ok($('cr-value-timer').textContent === '5 Min', 'timer arrow cycles 3 Min → 5 Min');
+
+    const plrPicker = $('cr-value-players').closest('.cr-picker');
+    plrPicker.querySelector('.cr-arrow[data-dir="+1"]').click();
+    ok($('cr-value-players').textContent === '12', 'max players arrow cycles 6 → 12');
+
+    const wpnPicker = $('cr-value-weapons').closest('.cr-picker');
+    wpnPicker.querySelector('.cr-arrow[data-dir="+1"]').click();
+    ok($('cr-value-weapons').textContent === 'Melee Only', 'weapons arrow cycles to Melee Only');
+
+    const arPicker = $('cr-value-arena').closest('.cr-picker');
+    arPicker.querySelector('.cr-arrow[data-dir="+1"]').click();
+    ok($('cr-value-arena').textContent === 'Reactor Core', 'arena arrow cycles to Reactor Core');
+
+    $('cr-fill-bots').click();
+    ok($('cr-fill-bots').checked === false, 'Fill with Bots toggle works');
+    $('cr-teams').click();
+    ok($('cr-teams').checked === true, 'Teams toggle works');
+
+    /* PLAY creates the room and closes the modal */
+    $('cr-btn-play').click();
+    ok(!$('modal-create-room').classList.contains('active'), 'PLAY closes the modal');
+    const created = calls.find((c) => c[0] === 'create');
+    ok(!!created && /^SR-\d{4}$/.test(created[1].code), `PLAY generates a room code (${created?.[1]?.code})`);
+    ok(created[1].mode === 'deathmatch' && created[1].target === 'time' && created[1].matchSeconds === 300,
+      `PLAY sends the configured match setup (${created?.[1]?.target}, ${created?.[1]?.matchSeconds}s)`);
+    ok(created[1].arena === 'reactor' && created[1].maxPlayers === 12 && created[1].bots === 0,
+      'PLAY sends arena, max players and bot count from the modal');
+    ok(created[1].fillBots === false && created[1].teams === true, 'PLAY sends the toggle states');
+
+    /* re-opening resets every picker to its defaults */
+    $('btn-create-room').click();
+    ok($('cr-value-mode').textContent === 'Free For All', 're-opening resets the mode picker');
+    ok($('cr-value-format').textContent === 'Kill Limit', 're-opening resets the format picker');
+    ok($('cr-fill-bots').checked === true, 're-opening resets the Fill with Bots toggle');
 $('btn-join-room').click();
 ok($('modal-join').classList.contains('active'), 'JOIN ROOM opens the in-page code dialog (no native prompt)');
 $('join-code-input').value = '4821';
@@ -213,8 +264,19 @@ menu.showResults({
   ],
   xp: 300, won: true, modeName: 'NEON DEATHMATCH', reward: '+300 XP',
 });
-ok($('results-list').children.length === 2, 'results list renders every racer');
-ok($('results-title').textContent === 'VICTORY!', 'victory title shown when the player wins');
+    ok($('results-list').children.length === 3, 'results list renders the header row + every racer');
+    ok($('results-list').children[0].classList.contains('result-head'), 'the leaderboard table has a header row');
+    ok($('results-title').textContent === 'VICTORY!', 'victory title shown when the player wins');
+
+    menu.showResults({
+      standings: [
+        { isMe: true, name: 'Me', kills: 2, deaths: 7, isBot: false, color: 0xff2d4b, accent: 0xffd166, score: 2, xp: 40 },
+        { name: 'Blitz', kills: 9, deaths: 1, isBot: true, color: 0x1ec8ff, accent: 0xffffff, score: 9, xp: 0 },
+      ],
+      xp: 40, won: false, modeName: 'NEON DEATHMATCH', reward: '+40 XP',
+    });
+    ok($('results-title').textContent === 'DEFEAT', 'defeat title shown when the player loses');
+    ok($('results-list').children[1].classList.contains('me'), 'own row stays highlighted in defeat');
 $('btn-rematch').click();
 ok(calls.some((c) => c[0] === 'rematch'), 'rematch button fires');
 $('btn-results-menu').click();

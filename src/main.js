@@ -241,6 +241,10 @@ class Game {
   }
 
   createOnlineRoom(config) {
+    // config comes straight from the "Create Private Game" modal (mode, timer /
+    // kill limit, max players, weapons, arena, bots toggle, …) plus a unique
+    // room code. The host is the authoritative client: it simulates bots, crate
+    // spawns, score and the match clock for everyone in the room.
     const conf = { mode: 'deathmatch', bots: 3, target: 15, arena: 'neon', ...config };
     this.menu.toast('Creating room…', '', '🛰️');
     this.net.createRoom(conf).then((res) => {
@@ -452,8 +456,9 @@ class Game {
     // 3b) every kart is guaranteed spawnable + alive before the first step
     this.validateEntries();
 
-    // 4) match state — one manager owns the countdown + the 3-minute clock
-    const duration = matchDurationFor({ mode, target });
+    // 4) match state — one manager owns the countdown + the match clock.
+    //    Timer rounds run for matchSeconds; kill-limit rounds run 3:00.
+    const duration = matchDurationFor({ mode, target, matchSeconds: config.matchSeconds });
     this.state = new MatchStateManager({
       duration,
       countdown: COUNTDOWN_SECONDS,
@@ -482,6 +487,10 @@ class Game {
       scores: new Map(entities.map((e) => [e.id, { kills: 0, deaths: 0, streak: 0 }])),
       padCooldown: new Map(),
       remotePing: 0,
+      kothTarget: mode === 'koth' ? (config.kothTargetSeconds ?? 60) : 0, // seconds of zone control to win
+      hillHolder: null,
+      hillInside: [],
+      winnerKart: null,
     };
     this.accum = 0;
 
@@ -696,18 +705,26 @@ class Game {
     /* camera + render ------------------------------------------ */
     const look = this.input.consumeLook();
     const zoom = this.input.consumeZoom();
-    this.engine.update(dt, playerKart && playerKart.alive ? {
-      kart: playerKart,
-      speedRatio: clamp(playerKart.speed / (ARCADE.BASE_MAX_SPEED * 1.15), 0, 1),
-      boosting: playerKart.boostTimer > 0,
+
+    // Match over: do NOT freeze — keep simulating and orbit the winning kart
+    // while the VICTORY / DEFEAT card is on screen.
+    if (this.match && this.match.state === MATCH_STATE.OVER) {
+      this.engine.rig.orbitYaw += dt * 0.4;
+    }
+
+    const camKart =
+      this.match?.state === MATCH_STATE.OVER && this.match.winnerKart
+        ? this.match.winnerKart
+        : playerKart && playerKart.alive ? playerKart
+        : playerKart || { position: new THREE.Vector3(), yaw: 0, steer: 0, speed: 0, boostTimer: 0 };
+    this.engine.update(dt, {
+      kart: camKart,
+      speedRatio: clamp((camKart.speed || 0) / (ARCADE.BASE_MAX_SPEED * 1.15), 0, 1),
+      boosting: !!(camKart.boostTimer > 0),
       lookBehind: this.input.isDown('lookBehind'),
       lookDelta: look,
       zoom,
       dragging: this.input.dragging,
-    } : {
-      kart: playerKart || { position: new THREE.Vector3(), yaw: 0, steer: 0 },
-      speedRatio: 0, boosting: false, lookBehind: false,
-      lookDelta: look, zoom, dragging: this.input.dragging,
     });
     if (this.arena) this.arena.update(dt, this.engine.time);
 
@@ -798,30 +815,93 @@ class Game {
     }
   }
 
+  /* ════════════════════════════════════════════════════════════════════════
+     KING OF THE HILL — glowing rotating neon zone at the arena centre
+     ════════════════════════════════════════════════════════════════════════ */
+
+  ensureHillZone() {
+    if (this.hillZone) return this.hillZone;
+    const group = new THREE.Group();
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(6.5, 9.5, 64),
+      new THREE.MeshBasicMaterial({
+        color: 0x22e1ff, transparent: true, opacity: 0.45,
+        side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.06;
+    group.add(ring);
+
+    const base = new THREE.Mesh(
+      new THREE.CylinderGeometry(9, 9, 0.4, 48),
+      new THREE.MeshBasicMaterial({
+        color: 0x161038, transparent: true, opacity: 0.35,
+        side: THREE.DoubleSide, depthWrite: false,
+      }),
+    );
+    base.position.y = 0.26;
+    group.add(base);
+
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.85, 1),
+      new THREE.MeshBasicMaterial({ color: 0xff2bd6 }),
+    );
+    core.position.y = 1.5;
+    group.add(core);
+
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(2.6, 20, 14),
+      new THREE.MeshBasicMaterial({
+        color: 0x22e1ff, transparent: true, opacity: 0,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }),
+    );
+    group.add(halo);
+
+    this.hillZone = { group, ring, base, core, halo };
+    this.engine.scene.add(group);
+    return this.hillZone;
+  }
+
   updateKoth(dt, karts) {
     const match = this.match;
     if (match.mode !== 'koth') return;
+
+    const zone = this.ensureHillZone();
+    zone.group.position.set(0, 0, 0);
+    zone.group.rotation.y += dt * 1.2;
+    zone.core.position.y = 1.5 + Math.sin(this.engine.time * 2.5) * 0.35;
+    zone.halo.material.opacity = 0.3 + Math.sin(this.engine.time * 3) * 0.15;
+
     const radius = 9;
-    let holder = null;
-    let holderDist = Infinity;
-    for (const kart of karts) {
-      if (!kart.alive) continue;
-      const d = Math.hypot(kart.position.x, kart.position.z);
-      if (d < radius && d < holderDist) { holderDist = d; holder = kart; }
-    }
+    const inside = karts.filter((k) => k.alive && Math.hypot(k.position.x, k.position.z) < radius);
+    match.hillInside = inside;
+    const contested = inside.length >= 2;
+    const holder = contested ? null : inside[0];
     match.hillHolder = holder;
+
     if (holder) {
       holder.kothScore = (holder.kothScore || 0) + dt;
       if (holder.isPlayer && this.frame % 30 === 0) {
-        this.hud.setHint('HOLDING THE CORE — keep it!', true);
+        this.hud.setHint('HOLDING THE CORE — +1 point per second', true);
       }
+      zone.ring.material.color.set(0x22e1ff);
+      zone.base.material.color.set(0x22e1ff);
+      zone.core.material.color.set(0x22e1ff);
+      zone.core.material.emissive.set(0x22e1ff);
+    } else {
+      zone.ring.material.color.set(contested ? 0xff3b5c : 0x6b6b6b);
+      zone.base.material.color.set(contested ? 0xff3b5c : 0x2a1a1a);
+      zone.core.material.color.set(contested ? 0xff3b5c : 0x4a4a4a);
+      zone.core.material.emissive.set(contested ? 0xff3b5c : 0x220a0a);
     }
-    const target = match.target === 'time' ? 60 : (Number(match.target) || 45);
-    match.kothTarget = target;
+
     if (!holder) return;
     const holderEntry = this.entries.find((e) => e.kart === holder);
-    if (this.match.online && holderEntry && !holderEntry.local) return; // their client announces
-    if ((holder.kothScore || 0) >= target) this.endMatch('koth-target', holder);
+    if (this.match.online && holderEntry && !holderEntry.local) return; // the owner client announces the win
+    if ((holder.kothScore || 0) >= match.kothTarget) this.endMatch('koth-target', holder);
   }
 
   resetStuckKart(kart) {
@@ -901,7 +981,7 @@ class Game {
     // the second actually changes (3:00 → 2:59).
     this.hud.setTimer(this.state ? this.state.timeLeft : this.match.timeLeft);
     if (this.match.mode === 'koth') {
-      this.hud.setHint(`CORE POINTS ${Math.floor(playerKart?.kothScore || 0)} / ${this.match.kothTarget || 45}`, (this.match.kothHolder === playerKart));
+      this.hud.setHint(`CORE POINTS ${Math.floor(playerKart?.kothScore || 0)} / ${this.match.kothTarget || 60}`, (this.match.hillHolder === playerKart));
     }
 
     this.hud.setScoreboard(rows, this.input.isDown('scoreboard'));
@@ -1093,10 +1173,12 @@ class Game {
     const match = this.match;
     if (!match || match.state === MATCH_STATE.OVER) return;
     match.state = MATCH_STATE.OVER;
+    match.winnerKart = winnerKart || null;
     this.state?.finish(reason);
     this.hud.countdown(null);
     this.hud.setScoreboard([], false);
 
+    const koth = match.mode === 'koth';
     const rows = forcedStandings
       ? forcedStandings.map((s) => {
         const entry = this.entries.find((e) => e.entityId === s.id);
@@ -1104,7 +1186,8 @@ class Game {
         return {
           id: s.id, name: s.name || entry?.kart.name || 'Racer',
           kills: s.kills, deaths: s.deaths,
-          isBot: !!entry?.isBot, isMe: entry?.kart.isPlayer,
+          score: koth ? Math.floor((entry?.kart?.kothScore ?? s.kills ?? 0)) : s.kills,
+          streak: s.streak, isBot: !!entry?.isBot, isMe: entry?.kart.isPlayer,
           color: skin.body, accent: skin.accent,
         };
       })
@@ -1112,10 +1195,11 @@ class Game {
         const skin = getSkin(e.kart.skinId);
         return {
           id: e.entityId, name: e.kart.name, kills: e.kart.kills, deaths: e.kart.deaths,
+          score: koth ? Math.floor(e.kart.kothScore || 0) : e.kart.kills,
           streak: e.kart.streak, isBot: e.isBot, isMe: e.kart.isPlayer,
           color: skin.body, accent: skin.accent,
         };
-      }).sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
+      }).sort((a, b) => b.score - a.score || a.deaths - b.deaths);
 
     const myRow = rows.find((r) => r.isMe) || rows[0] || { kills: 0, deaths: 0 };
     const placement = Math.max(1, rows.findIndex((r) => r.isMe) + 1);

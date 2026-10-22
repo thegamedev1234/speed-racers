@@ -51,6 +51,7 @@ export function formatClock(seconds) {
 
 /** Which clock a given match configuration should run on. */
 export function matchDurationFor(config = {}) {
+  if (config.matchSeconds) return Math.max(1, Math.floor(config.matchSeconds));
   if (config.mode === 'koth') return MATCH_SECONDS;
   if (config.target === 'time') return TIME_LIMIT_SECONDS;
   return MATCH_SECONDS;
