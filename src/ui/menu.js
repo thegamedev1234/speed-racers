@@ -17,6 +17,11 @@ export class MenuUI {
 
     this.config = { mode: 'deathmatch', bots: 5, target: 15, arena: 'neon' };
     this.activeModal = null;
+    /* "Create Private Game" modal state — Smash Karts style pickers. */
+    this.crConfig = {
+      mode: 'deathmatch', roundFormat: 'kill', roundTimer: '3 Min',
+      maxPlayers: '6', weapons: 'All', arena: 'neon', fillBots: true, teams: false,
+    };
 
     this.el = {
       boot: $('boot'),
@@ -60,6 +65,8 @@ export class MenuUI {
     this.bindStatic();
     this.bindSegments();
     this.bindSettings();
+    this.setupCreateRoomPickers();
+    this.resetCreateRoom();
     this.syncProfile();
   }
 
@@ -209,14 +216,27 @@ export class MenuUI {
     this.el.resultsScreen.classList.remove('hidden');
     this.el.menuScreen.classList.add('hidden');
     this.el.lobbyScreen.classList.add('hidden');
-    this.el.resultsTitle.textContent = won ? 'VICTORY!' : 'MATCH COMPLETE';
+    this.el.resultsTitle.textContent = won ? 'VICTORY!' : 'DEFEAT';
+    this.el.resultsTitle.className = `results-title${won ? '' : ' defeat'}`;
     this.el.resultsSub.textContent = modeName;
-    this.el.resultsList.innerHTML = standings.map((r, i) => `
+    const rankLabel = (i) => ['1st', '2nd', '3rd', '4th', '5th', '6th'][i] || `${i + 1}th`;
+    this.el.resultsList.innerHTML = `
+      <li class="result-head">
+        <span class="rr-rank">RANK</span>
+        <span class="rr-name">RACER</span>
+        <span class="rr-kills">KILLS</span>
+        <span class="rr-deaths">DEATHS</span>
+        <span class="rr-score">SCORE</span>
+        <span class="rr-xp">XP</span>
+      </li>
+    ` + standings.map((r, i) => `
       <li class="result-row${r.isMe ? ' me' : ''}${i < 3 ? ' podium' : ''}">
-        <span class="rr-rank">${i === 0 ? '🏆' : `${i + 1}`}</span>
+        <span class="rr-rank">${rankLabel(i)}</span>
         <span class="sb-chip" style="--c1:${hex(r.color)};--c2:${hex(r.accent)}"></span>
         <span class="rr-name">${r.name}${r.isBot ? '<span class="bot-tag">BOT</span>' : ''}</span>
-        <span class="rr-kd">${r.kills} K · ${r.deaths} D</span>
+        <span class="rr-kills">${r.kills ?? 0}</span>
+        <span class="rr-deaths">${r.deaths ?? 0}</span>
+        <span class="rr-score">${r.score ?? r.kills ?? 0}</span>
         <span class="rr-xp">${r.xp ? `+${r.xp} XP` : ''}</span>
       </li>
     `).join('');
@@ -245,6 +265,7 @@ export class MenuUI {
     this.el.modalLayer.classList.remove('hidden');
     document.querySelectorAll('.modal').forEach((m) => m.classList.toggle('active', m.id === id));
     this.activeModal = id;
+    if (id === 'modal-create-room') this.resetCreateRoom();
     if (id === 'modal-profile') this.fillProfileModal();
     this.audio?.uiClick();
   }
@@ -264,6 +285,104 @@ export class MenuUI {
     $('prof-wins').textContent = String(p.wins);
     $('prof-races').textContent = String(p.matches);
     $('prof-name').value = p.name;
+  }
+
+  /* ══════════════ CREATE PRIVATE GAME MODAL ═══════════════════════════════ */
+
+  /** Wire the arrow pickers inside #modal-create-room. */
+  setupCreateRoomPickers() {
+    const definePicker = (id, values, onChange) => {
+      const el = $(id);
+      if (!el) return;
+      const picker = el.closest('.cr-picker');
+      if (!picker) return;
+      let idx = 0;
+      const render = () => { el.textContent = values[idx]; };
+      picker.querySelectorAll('.cr-arrow').forEach((btn) => {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const dir = btn.dataset.dir === '+1' ? 1 : -1;
+          idx = (idx + dir + values.length) % values.length;
+          render();
+          this.audio?.uiClick();
+          onChange(values[idx]);
+        });
+      });
+      render();
+    };
+
+    definePicker('cr-value-mode', ['Free For All', 'King of the Hill'], (v) => {
+      this.crConfig.mode = v === 'King of the Hill' ? 'koth' : 'deathmatch';
+    });
+    definePicker('cr-value-format', ['Kill Limit', 'Timer'], (v) => {
+      this.crConfig.roundFormat = v === 'Timer' ? 'timer' : 'kill';
+    });
+    definePicker('cr-value-timer', ['3 Min', '5 Min', '10 Min'], (v) => {
+      this.crConfig.roundTimer = v;
+    });
+    definePicker('cr-value-players', ['6', '12', '24'], (v) => {
+      this.crConfig.maxPlayers = v;
+    });
+    definePicker('cr-value-weapons', ['All', 'Melee Only', 'Explosives Only'], (v) => {
+      this.crConfig.weapons = v;
+    });
+    definePicker('cr-value-arena', ['Neon Grid', 'Reactor Core', 'Sky Way'], (v) => {
+      this.crConfig.arena = v === 'Neon Grid' ? 'neon' : v === 'Reactor Core' ? 'reactor' : 'skyway';
+    });
+
+    const bindToggle = (id, key) => {
+      const el = $(id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        this.crConfig[key] = el.checked;
+        this.audio?.uiClick();
+      });
+    };
+    bindToggle('cr-fill-bots', 'fillBots');
+    bindToggle('cr-teams', 'teams');
+  }
+
+  /** Reset the modal to its defaults and reflect them in the DOM. */
+  resetCreateRoom() {
+    this.crConfig = {
+      mode: 'deathmatch', roundFormat: 'kill', roundTimer: '3 Min',
+      maxPlayers: '6', weapons: 'All', arena: 'neon', fillBots: true, teams: false,
+    };
+    const set = (id, value) => { const el = $(id); if (el) el.textContent = value; };
+    set('cr-value-mode', 'Free For All');
+    set('cr-value-format', 'Kill Limit');
+    set('cr-value-timer', '3 Min');
+    set('cr-value-players', '6');
+    set('cr-value-weapons', 'All');
+    set('cr-value-arena', 'Neon Grid');
+    const fillBots = $('cr-fill-bots');
+    const teams = $('cr-teams');
+    if (fillBots) fillBots.checked = true;
+    if (teams) teams.checked = false;
+  }
+
+  /** Gather the modal config and hand it to the host flow (creates the room). */
+  submitCreateRoom() {
+    const code = `SR-${Math.floor(1000 + Math.random() * 8999)}`;
+    const {
+      mode, roundFormat, roundTimer, maxPlayers, weapons, arena, fillBots, teams,
+    } = this.crConfig;
+    const minutes = roundFormat === 'timer' ? Number(String(roundTimer).replace(' Min', '')) || 3 : null;
+    const config = {
+      code,
+      mode,
+      target: roundFormat === 'kill' ? 15 : 'time',
+      matchSeconds: minutes ? minutes * 60 : undefined,
+      kothTargetSeconds: mode === 'koth' ? 60 : undefined,
+      arena,
+      bots: fillBots ? Math.min(7, Math.max(1, Number(maxPlayers) || 6) - 1) : 0,
+      maxPlayers: Number(maxPlayers) || 6,
+      weapons,
+      fillBots: !!fillBots,
+      teams: !!teams,
+    };
+    this.closeModals();
+    this.cb.onCreateRoom?.(config);
   }
 
   /* ══════════════ TOASTS ══════════════ */
@@ -323,9 +442,11 @@ export class MenuUI {
     /* main actions */
     click('btn-play', () => this.cb.onPlay?.(this.config));
     click('btn-create-room', () => {
-      const code = `SR-${Math.floor(1000 + Math.random() * 8999)}`;
-      this.cb.onCreateRoom?.({ ...this.config, code });
+      // Smash Karts flow: open the Create Private Game modal — never start a
+      // match immediately. The room is created only when the host presses PLAY.
+      this.openModal('modal-create-room');
     });
+    click('cr-btn-play', () => this.submitCreateRoom());
     click('btn-join-room', () => {
       this.openModal('modal-join');
       const input = $('join-code-input');

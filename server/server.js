@@ -100,11 +100,19 @@ function createRoom(hostSocket, player, config) {
 }
 
 function sanitizeConfig(config = {}) {
+  const matchSeconds = Number(config.matchSeconds);
+  const kothTargetSeconds = Number(config.kothTargetSeconds);
   return {
     mode: config.mode === 'koth' ? 'koth' : 'deathmatch',
     bots: Math.max(0, Math.min(8, parseInt(config.bots ?? 3, 10) || 0)),
     target: config.target === 'time' ? 'time' : Math.max(5, Math.min(100, parseInt(config.target ?? 15, 10) || 15)),
     arena: ['neon', 'reactor', 'skyway'].includes(config.arena) ? config.arena : 'neon',
+    matchSeconds: Number.isFinite(matchSeconds) && matchSeconds > 0
+      ? Math.max(30, Math.min(3600, Math.floor(matchSeconds)))
+      : undefined,
+    kothTargetSeconds: Number.isFinite(kothTargetSeconds) && kothTargetSeconds > 0
+      ? Math.max(10, Math.min(600, Math.floor(kothTargetSeconds)))
+      : undefined,
   };
 }
 

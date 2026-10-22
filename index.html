@@ -404,6 +404,77 @@
       </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════════════════════════════════════════
+         CREATE PRIVATE GAME — Smash Karts style glassmorphism modal
+         ═════════════════════════════════════════════════════════════════════════════════ -->
+    <div class="modal" id="modal-create-room">
+      <header class="modal-head">
+        <h3>Create Private Game</h3>
+        <button class="icon-btn ghost" data-close-modal>✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="cr-field">
+          <label>MODE</label>
+          <div class="cr-picker">
+            <button type="button" class="cr-arrow" data-dir="-1">‹</button>
+            <span class="cr-value" id="cr-value-mode">Free For All</span>
+            <button type="button" class="cr-arrow" data-dir="+1">›</button>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label>ROUND FORMAT</label>
+          <div class="cr-picker">
+            <button type="button" class="cr-arrow" data-dir="-1">‹</button>
+            <span class="cr-value" id="cr-value-format">Kill Limit</span>
+            <button type="button" class="cr-arrow" data-dir="+1">›</button>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label>ROUND TIMER</label>
+          <div class="cr-picker">
+            <button type="button" class="cr-arrow" data-dir="-1">‹</button>
+            <span class="cr-value" id="cr-value-timer">3 Min</span>
+            <button type="button" class="cr-arrow" data-dir="+1">›</button>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label>MAX PLAYERS</label>
+          <div class="cr-picker">
+            <button type="button" class="cr-arrow" data-dir="-1">‹</button>
+            <span class="cr-value" id="cr-value-players">6</span>
+            <button type="button" class="cr-arrow" data-dir="+1">›</button>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label>WEAPONS</label>
+          <div class="cr-picker">
+            <button type="button" class="cr-arrow" data-dir="-1">‹</button>
+            <span class="cr-value" id="cr-value-weapons">All</span>
+            <button type="button" class="cr-arrow" data-dir="+1">›</button>
+          </div>
+        </div>
+        <div class="cr-field">
+          <label>ARENA</label>
+          <div class="cr-picker">
+            <button type="button" class="cr-arrow" data-dir="-1">‹</button>
+            <span class="cr-value" id="cr-value-arena">Neon Grid</span>
+            <button type="button" class="cr-arrow" data-dir="+1">›</button>
+          </div>
+        </div>
+        <div class="cr-field cr-toggles">
+          <label class="cr-toggle-row">
+            <input type="checkbox" id="cr-fill-bots" class="switch" checked />
+            <span>Fill with Bots</span>
+          </label>
+          <label class="cr-toggle-row">
+            <input type="checkbox" id="cr-teams" class="switch" />
+            <span>Teams</span>
+          </label>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-xl btn-gold cr-play" id="cr-btn-play">PLAY</button>
+    </div>
+
     <div class="modal" id="modal-profile">
       <header class="modal-head"><h3>RACER PROFILE</h3><button class="icon-btn ghost" data-close-modal>✕</button></header>
       <div class="modal-body">
