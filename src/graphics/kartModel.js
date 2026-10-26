@@ -16,8 +16,11 @@
  * If a future revision of the model is authored facing +Z, flip it here:
  *   model.rotation.y = Math.PI;
  *
- * The GLB root is re-centred so the buggy sits flush on the ground:
- *   • wheels touch y = 0  (min Y of the model is placed at 0)
+ * Environment geometry (ground / pedestal / rocks / base / terrain) that may
+ * ship inside the GLB is stripped out in `prepareModel` *before* the bounding
+ * box is computed, so only the vehicle is measured and centred. The kart is
+ * then placed flush on the floor:
+ *   • wheels touch y = 0  (min Y of the vehicle is placed at 0)
  *   • origin at the kart base (centre of X/Z, bottom at Y)
  *   • the GLB root aligns with the physics kart body, so the chase camera
  *     reading kart.position / kart.yaw / kart.steer / kart.speed lines up.
@@ -40,6 +43,9 @@ const MODEL_URL = '/models/karts/buggy-battle.glb';
  */
 const SCALE = 1.0;
 
+// Names (case-insensitive) that mark environment geometry rather than the vehicle.
+const ENV_NAMES = /ground|rock|pedestal|base|terrain/i;
+
 // shared underglow texture; colour is tinted per skin at build time
 const glowTex = makeGlowTexture(0.25);
 
@@ -47,7 +53,31 @@ const loader = new GLTFLoader();
 let cached = null;   // { scene, box, center, bodyMat }
 let loadPromise = null;
 
+/** True when a mesh is environment geometry that must not be part of the kart. */
+function isEnvironmentMesh(mesh) {
+  if (!mesh.isMesh) return false;
+  const name = (mesh.name || '').toLowerCase();
+  if (ENV_NAMES.test(name)) return true;
+  // Heuristic: a thin, wide horizontal slab (environment floor / pedestal).
+  // The vehicle's wheels and body are chunky in all axes; a ground slab is
+  // very thin vertically while spanning wide horizontally.
+  const box = new THREE.Box3().setFromObject(mesh);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  return size.y < 0.4 && Math.max(size.x, size.z) > 2.0;
+}
+
 function prepareModel(scene) {
+  // Strip environment geometry (ground / pedestal / rocks / base / terrain)
+  // from the scene graph *before* measuring the vehicle.
+  const toRemove = [];
+  scene.traverse((o) => {
+    if (o.isMesh && isEnvironmentMesh(o)) toRemove.push(o);
+  });
+  toRemove.forEach((o) => {
+    if (o.parent) o.parent.remove(o);
+  });
+
   const box = new THREE.Box3().setFromObject(scene);
   const center = new THREE.Vector3();
   box.getCenter(center);
@@ -87,7 +117,7 @@ export function buildKartMesh(skin) {
 
   const { scene, box, center, bodyMat } = cached;
 
-  // clone the master scene (geometries / materials are shared between karts)
+  // clone the cleaned master scene (geometries / materials are shared between karts)
   const model = new THREE.Group();
   scene.children.forEach((child) => model.add(child.clone()));
 
