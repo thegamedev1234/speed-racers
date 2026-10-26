@@ -19,7 +19,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
-import { buildKartMesh } from '../graphics/karts.js';
+import { buildKartMesh } from '../graphics/kartModel.js';
 import { buildArenaObjects, THEMES, ARENA_HALF } from './arena.js';
 import {
   makeGlowTexture, makeSmokeTexture, makeGridTexture, makeRingTexture, makeSkyTexture,

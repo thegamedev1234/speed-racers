@@ -20,7 +20,7 @@ import { HUD } from './ui/hud.js';
 import { MenuUI } from './ui/menu.js';
 import { NetworkManager } from './network/multiplayer.js';
 import { BotBrain, createBotRoster } from './game/ai.js';
-import { buildKartMesh } from './graphics/karts.js';
+import { buildKartMesh, loadKartModel } from './graphics/kartModel.js';
 import { KART_SPAWNS, CRATE_SPAWNS, pickSpawnAwayFrom, generateSpawnPoints, THEMES } from './game/arena.js';
 import {
   MatchStateManager, MATCH_STATE, matchDurationFor, MAX_DELTA, COUNTDOWN_SECONDS,
@@ -589,7 +589,7 @@ class Game {
 
   createRemoteVisual(skin, entity) {
     const visual = buildKartMesh(skin);
-    visual.group.position.set(0, 0.6, 0);
+    visual.group.position.set(0, 0, 0);
     this.engine.scene.add(visual.group);
     return visual;
   }
@@ -1319,13 +1319,26 @@ function reportBootFailure(err) {
   }
 }
 
-try {
-  const game = new Game();
-  window.__SUPER_RACERS__ = game;
-  window.__SR_BOOT_STARTED__ = true;
-  // start() is async; without a catch, its rejection would be silently
-  // swallowed (the watchdog ignores rejections once __SR_BOOT_STARTED__ is set).
-  game.start().catch(reportBootFailure);
-} catch (err) {
-  reportBootFailure(err);
+window.__SR_BOOT_STARTED__ = true;
+
+async function boot() {
+  try {
+    // Load the kart model before the engine builds the showroom kart so the
+    // menu (and every match kart) uses the real GLB model rather than a
+    // fallback visual. buildKartMesh is synchronous once the model is cached.
+    await loadKartModel();
+  } catch (err) {
+    console.error('[Super Racers] failed to load kart model (fallback visual)', err);
+  }
+  try {
+    const game = new Game();
+    window.__SUPER_RACERS__ = game;
+    // start() is async; without a catch, its rejection would be silently
+    // swallowed (the watchdog ignores rejections once __SR_BOOT_STARTED__ is set).
+    game.start().catch(reportBootFailure);
+  } catch (err) {
+    reportBootFailure(err);
+  }
 }
+
+boot().catch(reportBootFailure);
